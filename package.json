@@ -1,0 +1,19 @@
+{
+  "name": "testomatio-testrail",
+  "version": "1.0.0",
+  "description": "TestRail to Testomat.io migration script",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node run.js"
+  },
+  "keywords": [],
+  "author": "Michael Bodnarchuk @davert Testomat.io",
+  "license": "ISC",
+  "dependencies": {
+    "debug": "^4.3.4"
+  },
+  "devDependencies": {
+    "dotenv": "^16.4.5"
+  }
+}
