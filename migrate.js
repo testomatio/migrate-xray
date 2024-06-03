@@ -1,31 +1,10 @@
 import debug from 'debug';
 import { getTestRailUrl, getTestRailEndpoints, fetchFromTestRail, downloadFile } from './testrail.js';
-import { getTestomatioEndpoints, loginToTestomatio, uploadFile, postToTestomatio, putToTestomatio } from './testomatio.js';
+import { getTestomatioEndpoints, loginToTestomatio, uploadFile, fetchFromTestomatio, postToTestomatio, putToTestomatio } from './testomatio.js';
 
 const logData = debug('testomatio:testrail:migrate');
 
 let suiteId = process.env.TESTRAIL_SUITE_ID || null; // set to null to migrate all suites
-
-// API endpoints
-const { 
-  getSuitesEndpoint, 
-  getSuiteEndpoint,
-  getSectionsEndpoint, 
-  getCasesEndpoint, 
-  getCaseFieldsEndpoint, 
-  getAttachmentsEndpoint, 
-  downloadAttachmentEndpoint,
-  getPrioritesEndpoint,
-} = getTestRailEndpoints();
-
-const {
-  postSuiteEndpoint,
-  postTestEndpoint,
-  postJiraIssueEndpoint,
-  postIssueLinkEndpoint,
-  postLabelEndpoint,
-  postLabelLinkEndpoint,
-} = getTestomatioEndpoints();
 
 const FIELD_TYPES = {
   1: 'String',
@@ -42,10 +21,30 @@ const FIELD_TYPES = {
 }
 
 export default async function migrateTestCases() {
+  // API endpoints
+  const { 
+    getSuitesEndpoint, 
+    getSuiteEndpoint,
+    getSectionsEndpoint, 
+    getCasesEndpoint,
+    getCaseFieldsEndpoint,
+    getAttachmentsEndpoint, 
+    downloadAttachmentEndpoint,
+    getPrioritesEndpoint,
+  } = getTestRailEndpoints();
+  
+  const {
+    postSuiteEndpoint,
+    postTestEndpoint,
+    postJiraIssueEndpoint,
+    postIssueLinkEndpoint,
+    postLabelEndpoint,
+    postLabelLinkEndpoint,
+  } = getTestomatioEndpoints();
+  
   try {
     await loginToTestomatio();
 
-    // Get suites for the project
     const labelsMap = {};
     const labelValuesMap = {};
     
@@ -56,6 +55,13 @@ export default async function migrateTestCases() {
     console.log('CUSTOM FIELDS:', fields.length);
 
     const labelFields = fields.filter(field => ['String', 'Integer', 'Checkbox', 'Dropdown'].includes(FIELD_TYPES[field.type_id]));
+
+    // maybe we already imported labels
+    const prevLabels = {}
+    const testomatioLabels = await fetchFromTestomatio(postLabelEndpoint);
+    testomatioLabels?.data?.forEach(l => {
+      prevLabels[l.attributes.title] = l.id;
+    });
 
     for (const field of labelFields) {
       logData(field);
@@ -89,6 +95,12 @@ export default async function migrateTestCases() {
         }
       }
 
+      // already created label
+      if (prevLabels[label.title]) {
+        labelsMap[field.system_name] = prevLabels[label.title];
+        continue;
+      }
+
       const labelData = await postToTestomatio(postLabelEndpoint, 'label', label)
 
       if (!labelData) continue;
@@ -104,7 +116,8 @@ export default async function migrateTestCases() {
     }, {});
 
     logData('customFields', customFields);
-
+    
+    // Get suites for the project
     let suites = [];
     if (suiteId) {
       suites = await fetchFromTestRail(getSuiteEndpoint + suiteId);
@@ -140,7 +153,7 @@ export default async function migrateTestCases() {
           title: section.name, 
           description: section.description,
           position: section.display_order,
-          'parent-id': parentId ?? testomatioSuite.id,
+          'parent-id': parentId ?? testomatioSuite?.id,
         };
 
         if (parentId) {
@@ -150,7 +163,7 @@ export default async function migrateTestCases() {
 
         const postSectionResponse = await postToTestomatio(postSuiteEndpoint, 'suites', sectionData);
         
-        sectionsMap[section.id] = postSectionResponse.id;
+        sectionsMap[section.id] = postSectionResponse?.id;
       }
       console.log();
 
@@ -229,7 +242,7 @@ export default async function migrateTestCases() {
           if (!url) continue;
 
           if (attachment.is_image) {
-            description = description.replaceAll(`![](index.php?/attachments/get/${attachment.id})`, `![${attachment.name}](${url})`)
+            description = description.replaceAll(`(index.php?/attachments/get/${attachment.id})`, `(${url})`)
           } else {
             description = description.replaceAll(`![](index.php?/attachments/get/${attachment.id})`, `[📎 ${attachment.name}](${url})`)
           }
@@ -293,7 +306,6 @@ export default async function migrateTestCases() {
   }
 }
 
-
 function fetchDescriptionFromTestCase(testCase, field) {
 
   if (FIELD_TYPES[field.type_id] === 'Text') {
@@ -309,28 +321,25 @@ function fetchDescriptionFromTestCase(testCase, field) {
   }
 
   if (FIELD_TYPES[field.type_id] === 'Steps') {
-    const text = testCase.custom_steps_separated?.map(step => {
+    const text = testCase[field.system_name]?.map(step => {
       let res = step.content?.trim();
       if (!res) return '';
       if (!res.startsWith('- ')) res = '- ' + res;
       if (step.expected) {
-        res += '\n' + step.expected.split('\n')     
+        if (!step.expected.trim()) return "\n" + res;
+
+        res += '\n*Expected*: ' + step.expected.split('\n')     
           .map(line => line.trim())
           .filter(line => !!line)
           .map(line => {
             if (line.startsWith('- ')) line = line.slice(2).trim();
-            // remove image from markup so we won't mark it as expected
-            const regex = /\!([\[\(].*?[\]\)])\([^)]*\)|\[([^]]+)?\](\(.*?\)|\[.*?\])/g;
-            if (!line.replace(regex, '')) {
-              return line;
-            }
-            
-            return "*Expected:* " + line;
+            return line;
           })
-          .join('\n');
+          .join('\n').trim();
       }
-      return '\n' + res;
-    })?.join('\n')?.trim();
+
+      return '\n' + res;      
+    })?.join('\n');
 
     if (!text) return '';
     return `## ${field.label}\n\n${text.trim()}`;

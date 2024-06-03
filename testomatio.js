@@ -10,7 +10,6 @@ let token;
 let host;
 let project;
 
-
 let jwtToken;
 
 export function getTestomatioEndpoints() {
@@ -52,6 +51,21 @@ export async function loginToTestomatio() {
   jwtToken = data.jwt;
 }
 
+export async function fetchFromTestomatio(endpoint) {
+  if (DRY_RUN) return;
+  const response = await fetch(`${host}/${endpoint}`, {
+    headers: {
+      'Authorization': jwtToken, 
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch data: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
 export async function postToTestomatio(endpoint, type = null, data = {}) {
   if (DRY_RUN) return;
   let response;
@@ -68,10 +82,13 @@ export async function postToTestomatio(endpoint, type = null, data = {}) {
           'Content-Type': 'application/json',
           'Authorization': jwtToken, 
         }});
+
+      if (!response.ok) {
+        throw new Error(`Failed to send data: ${response.status} ${response.statusText} ${await response.text()}`);
+      }        
     } catch (error) {
       console.error('Error:', error);
-      console.error('Response', response);
-    }    
+    }
     return response.json();
   }  
   
@@ -96,12 +113,15 @@ export async function postToTestomatio(endpoint, type = null, data = {}) {
         }
       }),
     });
+
+    if (!response.ok) {
+      throw new Error(`Failed to send data: ${response.status} ${response.statusText} ${await response.text()}`);
+    }
+
   } catch (error) {
     console.error('Error:', error);
-    console.error('Response', response);
     return;
   }
-
   
   const json = await response.json();
   logOutput('postToTestomatio:response', json);
@@ -133,9 +153,13 @@ export async function putToTestomatio(endpoint, type, id, data) {
         }
       }),
     });
+
+    if (!response.ok) {
+      throw new Error(`Failed to send data: ${response.status} ${response.statusText} ${await response.text()}`);
+    }
+
   } catch (error) {
     console.error('Error:', error);
-    console.error('Response', response);
     return;
   }
   
@@ -145,7 +169,10 @@ export async function putToTestomatio(endpoint, type, id, data) {
 
 export const uploadFile = async (testId, filePath, attachment) => {
   if (DRY_RUN) return;
-  if (!fs.existsSync(filePath)) return;
+  if (!fs.existsSync(filePath)) {
+    console.error(`File not found: ${filePath}, can't upload`);
+    return;
+  }
 
   try {
     const formData = new FormData();

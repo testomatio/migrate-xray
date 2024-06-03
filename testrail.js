@@ -59,7 +59,7 @@ export async function fetchFromTestRail(endpoint, type = null) {
     });
   
     if (!response.ok) {
-      throw new Error(`Failed to fetch data: ${baseUrl + fetchUrl}: ${response.status} ${response.statusText}`);
+      throw new Error(`Failed to fetch data: ${baseUrl + fetchUrl}: ${response.status} ${response.statusText}\n${await response.text()}`);
     }
     const data = await response.json();
     logInput('fetchFromTestRail', `${baseUrl}${endpoint}`, data);
