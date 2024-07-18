@@ -253,6 +253,18 @@ export default async function migrateTestCases() {
           logData('description', description);
         }
 
+        const otherAttachmentIds = description.matchAll(/index\.php\?\/attachments\/get\/(\d+)/g).map(m => m[1]);
+
+        for (const attachmentId of otherAttachmentIds) {
+          const file = await downloadFile(downloadAttachmentEndpoint + attachmentId);    
+
+          const url = await uploadFile(test.id, file, { id: attachmentId });
+
+          if (!url) continue;
+
+          description = description.replaceAll(`index.php?/attachments/get/${attachmentId}`, url);
+        }
+
         await putToTestomatio(postTestEndpoint, 'tests', test.id, { description });      
 
         // refs
