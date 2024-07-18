@@ -254,10 +254,10 @@ export default async function migrateTestCases() {
         }
 
         if (description) {
-          const macthedIds = description.matchAll(/index\.php\?\/attachments\/get\/(\d+)/g);
+          const matchedIds = description.matchAll(/index\.php\?\/attachments\/get\/(\d+)/g);
 
           if (matchedIds.toArray) {
-            const otherAttachmentIds = macthedIds.toArray().map(m => m[1]);
+            const otherAttachmentIds = matchedIds.toArray().map(m => m[1]);
   
             for (const attachmentId of otherAttachmentIds) {
               const file = await downloadFile(downloadAttachmentEndpoint + attachmentId);    
