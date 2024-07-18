@@ -253,21 +253,19 @@ export default async function migrateTestCases() {
           logData('description', description);
         }
 
-        if (description) {
-          const matchedIds = description.matchAll(/index\.php\?\/attachments\/get\/(\d+)/g);
+        const matchedIds = description.matchAll(/index\.php\?\/attachments\/get\/([\da-f-]+)/g);
 
-          if (matchedIds.toArray) {
-            const otherAttachmentIds = matchedIds.toArray().map(m => m[1]);
+        if (matchedIds.toArray) {
+          const otherAttachmentIds = matchedIds.toArray().map(m => m[1]);
+
+          for (const attachmentId of otherAttachmentIds) {
+            const file = await downloadFile(downloadAttachmentEndpoint + attachmentId);    
   
-            for (const attachmentId of otherAttachmentIds) {
-              const file = await downloadFile(downloadAttachmentEndpoint + attachmentId);    
-    
-              const url = await uploadFile(test.id, file, { id: attachmentId });
-    
-              if (!url) continue;
-    
-              description = description.replaceAll(`index.php?/attachments/get/${attachmentId}`, url);
-            }
+            const url = await uploadFile(test.id, file, { id: attachmentId });
+  
+            if (!url) continue;
+  
+            description = description.replaceAll(`index.php?/attachments/get/${attachmentId}`, url);
           }
         }
 
