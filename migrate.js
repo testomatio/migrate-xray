@@ -22,17 +22,17 @@ const FIELD_TYPES = {
 
 export default async function migrateTestCases() {
   // API endpoints
-  const { 
-    getSuitesEndpoint, 
+  const {
+    getSuitesEndpoint,
     getSuiteEndpoint,
-    getSectionsEndpoint, 
+    getSectionsEndpoint,
     getCasesEndpoint,
     getCaseFieldsEndpoint,
-    getAttachmentsEndpoint, 
+    getAttachmentsEndpoint,
     downloadAttachmentEndpoint,
     getPrioritesEndpoint,
   } = getTestRailEndpoints();
-  
+
   const {
     postSuiteEndpoint,
     postTestEndpoint,
@@ -41,16 +41,16 @@ export default async function migrateTestCases() {
     postLabelEndpoint,
     postLabelLinkEndpoint,
   } = getTestomatioEndpoints();
-  
+
   try {
     await loginToTestomatio();
 
     const labelsMap = {};
     const labelValuesMap = {};
-    
+
     const priorities = convertPriorities(await fetchFromTestRail(getPrioritesEndpoint));
     logData('Priorities', priorities);
-    
+
     const fields = await fetchFromTestRail(getCaseFieldsEndpoint);
     console.log('CUSTOM FIELDS:', fields.length);
 
@@ -68,7 +68,7 @@ export default async function migrateTestCases() {
       const label = { title: field.label, scope: ['tests', 'suites'] };
       if (FIELD_TYPES[field.type_id] === 'String' || FIELD_TYPES[field.type_id] === 'Integer') {
         label.field = {
-          type: 'string',        
+          type: 'string',
         }
       }
 
@@ -107,7 +107,7 @@ export default async function migrateTestCases() {
 
       labelsMap[field.system_name] = labelData.id;
     }
-    
+
     logData('Field Values', labelValuesMap);
 
     const customFields = fields.reduce((acc, obj) => {
@@ -116,7 +116,7 @@ export default async function migrateTestCases() {
     }, {});
 
     logData('customFields', customFields);
-    
+
     // Get suites for the project
     let suites = [];
     if (suiteId) {
@@ -127,17 +127,17 @@ export default async function migrateTestCases() {
 
     for (const suite of suites) {
 
-      const suiteData = { 
-        title: suite.name, 
-        'file-type': 'folder', 
-        description: suite.description 
+      const suiteData = {
+        title: suite.name,
+        'file-type': 'folder',
+        description: suite.description
       };
 
       const testomatioSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
-      
+
       const sectionsMap = {};
       const foldersIds = [];
-      const filesMap = {}; 
+      const filesMap = {};
 
       const sections = await fetchFromTestRail(`${getSectionsEndpoint}&suite_id=${suite.id}`, 'sections')
 
@@ -146,11 +146,11 @@ export default async function migrateTestCases() {
       for (const section of sections) {
 
         process.stdout.write('.');
-        
+
         const parentId = sectionsMap[section.parent_id];
 
-        const sectionData = { 
-          title: section.name, 
+        const sectionData = {
+          title: section.name,
           description: section.description,
           position: section.display_order,
           'parent-id': parentId ?? testomatioSuite?.id,
@@ -162,7 +162,7 @@ export default async function migrateTestCases() {
         }
 
         const postSectionResponse = await postToTestomatio(postSuiteEndpoint, 'suites', sectionData);
-        
+
         sectionsMap[section.id] = postSectionResponse?.id;
       }
       console.log();
@@ -201,12 +201,12 @@ export default async function migrateTestCases() {
 
           // we need to create another file type suite
           const title = sections.find(s => s.id === testCase.section_id)?.name || "Tests";
-          const suiteData = { 
+          const suiteData = {
             title,
-            'file-type': 'file', 
+            'file-type': 'file',
             'parent-id': suiteId,
             position: 1,
-            description: sections.find(s => s.id === suiteId)?.description 
+            description: sections.find(s => s.id === suiteId)?.description
           };
           const newSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
           filesMap[suiteId] = newSuite.id;
@@ -232,10 +232,11 @@ export default async function migrateTestCases() {
         });
 
         const attachments = await fetchFromTestRail(`${getAttachmentsEndpoint}${testCase.id}`, 'attachments');
+
         logData('attachments', attachments);
 
         for (const attachment of attachments) {
-          const file = await downloadFile(downloadAttachmentEndpoint + attachment.id);    
+          const file = await downloadFile(downloadAttachmentEndpoint + attachment.id);
 
           const url = await uploadFile(test.id, file, attachment);
 
@@ -253,23 +254,21 @@ export default async function migrateTestCases() {
           logData('description', description);
         }
 
-        const matchedIds = description.matchAll(/index\.php\?\/attachments\/get\/([\da-f-]+)/g);
+        const otherAttachmentIds = Array.from(description.matchAll(/index\.php\?\/attachments\/get\/([\da-f-]+)/g)).map(m => m[1]);
 
-        if (matchedIds.toArray) {
-          const otherAttachmentIds = matchedIds.toArray().map(m => m[1]);
+        if (otherAttachmentIds.length) logData('Extra attachments to upload:', otherAttachmentIds);
 
-          for (const attachmentId of otherAttachmentIds) {
-            const file = await downloadFile(downloadAttachmentEndpoint + attachmentId);    
-  
-            const url = await uploadFile(test.id, file, { id: attachmentId });
-  
-            if (!url) continue;
-  
-            description = description.replaceAll(`index.php?/attachments/get/${attachmentId}`, url);
-          }
+        for (const attachmentId of otherAttachmentIds) {
+          const file = await downloadFile(downloadAttachmentEndpoint + attachmentId);
+
+          const url = await uploadFile(test.id, file, { id: attachmentId });
+
+          if (!url) continue;
+
+          description = description.replaceAll(`index.php?/attachments/get/${attachmentId}`, url);
         }
 
-        await putToTestomatio(postTestEndpoint, 'tests', test.id, { description });      
+        await putToTestomatio(postTestEndpoint, 'tests', test.id, { description });
 
         // refs
         const refs = testCase.refs?.split(',').map(ref => ref.trim()).filter(ref => !!ref);
@@ -290,7 +289,7 @@ export default async function migrateTestCases() {
               console.error('Error adding ref:', error);
             }
           }
-        }                             
+        }
 
         // labels
         const labels = Object.keys(testCase).filter(key => key.startsWith('custom_') && labelsMap[key]);
@@ -344,7 +343,7 @@ function fetchDescriptionFromTestCase(testCase, field) {
       if (step.expected) {
         if (!step.expected.trim()) return "\n" + res;
 
-        res += '\n*Expected*: ' + step.expected.split('\n')     
+        res += '\n*Expected*: ' + step.expected.split('\n')
           .map(line => line.trim())
           .filter(line => !!line)
           .map(line => {
@@ -354,7 +353,7 @@ function fetchDescriptionFromTestCase(testCase, field) {
           .join('\n').trim();
       }
 
-      return '\n' + res;      
+      return '\n' + res;
     })?.join('\n');
 
     if (!text) return '';
@@ -370,7 +369,7 @@ function formatCodeBlocks(description) {
       // if it looks like HTML tag, wrap it in code block
       if (line.trim().match(/^<\w+/)) {
         return '`' + line.trim() + '`';
-      }            
+      }
       // todo: add more checks for code blocks
       return line;
     })
@@ -380,14 +379,14 @@ function formatCodeBlocks(description) {
 
 function convertPriorities(priorities) {
   const convertedPriorities = {}
-  
+
   const defaultIndex = priorities.find(p => p.short_name == 'Medium' || p.is_default)?.priority || 0;
 
   priorities.forEach((priority) => {
     const index = priority.priority;
 
     let value = 0;
-    
+
     if (index < defaultIndex) {
       value = -1;
     } else if (index > defaultIndex) {
