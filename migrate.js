@@ -1,37 +1,11 @@
 import debug from 'debug';
-import { getTestRailUrl, getTestRailEndpoints, fetchFromTestRail, downloadFile } from './testrail.js';
+import { fetchCustomFields, fetchTestCases, fetchTestCase } from './jira.js';
+import { fetchRepository, fetchTestsFromFolder, fetchSteps, downloadAttachment } from './xray.internal.js';
 import { getTestomatioEndpoints, loginToTestomatio, uploadFile, fetchFromTestomatio, postToTestomatio, putToTestomatio } from './testomatio.js';
 
-const logData = debug('testomatio:testrail:migrate');
-
-let suiteId = process.env.TESTRAIL_SUITE_ID || null; // set to null to migrate all suites
-
-const FIELD_TYPES = {
-  1: 'String',
-  2: 'Integer',
-  3: 'Text', // as Description
-  4: 'URL', // as Description
-  5: 'Checkbox', // as Label
-  6: 'Dropdown',
-  7: 'User', // NOT SUPPORTED
-  8: 'Date', // NOT SUPPORTED
-  9: 'Milestone', // NOT SUPPORTED
-  10: 'Steps',  // as Description
-  12: 'Multi-select', // NOT SUPPORTED
-}
+const logData = debug('testomatio:xray:migrate');
 
 export default async function migrateTestCases() {
-  // API endpoints
-  const {
-    getSuitesEndpoint,
-    getSuiteEndpoint,
-    getSectionsEndpoint,
-    getCasesEndpoint,
-    getCaseFieldsEndpoint,
-    getAttachmentsEndpoint,
-    downloadAttachmentEndpoint,
-    getPrioritesEndpoint,
-  } = getTestRailEndpoints();
 
   const {
     postSuiteEndpoint,
@@ -42,358 +16,178 @@ export default async function migrateTestCases() {
     postLabelLinkEndpoint,
   } = getTestomatioEndpoints();
 
-  try {
-    await loginToTestomatio();
+  // await fetchCustomFields();
+  // API endpoints
 
-    const labelsMap = {};
-    const labelValuesMap = {};
+  // IF XRAY API IS NOT AVAILABLE WE CAN IMPORT TEST CASES ONLY
+  // const testCases = await fetchTestCases();
+  
+  // const repositories = await fetchFromXRay(getXRayEndpoints().getTestRepositories);
+  const repository = await fetchRepository();
+  
+  await loginToTestomatio();
 
-    const priorities = convertPriorities(await fetchFromTestRail(getPrioritesEndpoint));
-    logData('Priorities', priorities);
+  const folders = repository.folders;
 
-    const fields = await fetchFromTestRail(getCaseFieldsEndpoint);
-    console.log('CUSTOM FIELDS:', fields.length);
+  console.log("Creating suites...", folders.length - 1);
 
-    const labelFields = fields.filter(field => ['String', 'Integer', 'Checkbox', 'Dropdown'].includes(FIELD_TYPES[field.type_id]));
+  const foldersMap = {};
+  const filesMap = {};
 
-    // maybe we already imported labels
-    const prevLabels = {}
-    const testomatioLabels = await fetchFromTestomatio(postLabelEndpoint);
-    testomatioLabels?.data?.forEach(l => {
-      prevLabels[l.attributes.title] = l.id;
-    });
+  for (const folder of folders) {
+    if (folder.folderId === '-1') continue;
 
-    for (const field of labelFields) {
-      logData(field);
-      const label = { title: field.label, scope: ['tests', 'suites'] };
-      if (FIELD_TYPES[field.type_id] === 'String' || FIELD_TYPES[field.type_id] === 'Integer') {
-        label.field = {
-          type: 'string',
-        }
-      }
+    const isFolder = folder.folders.length > 0;
 
-      if (FIELD_TYPES[field.type_id] === 'Dropdown') {
-        let value = field.configs[0]?.options?.items;
-        logData('List values', value);
-
-        if (!value) continue;
-
-        labelValuesMap[field.system_name] = value.split('\n').map(v => v.split(','));
-
-        // remove numbers from values
-        value = value.split('\n')
-          // remove value numbers
-          .map(v => v.replace(/^\d+[:\s,]/g, ''))
-          .map(v => v.trim())
-          .filter(v => !!v)
-          .join('\n')
-          .replace(/[,:]/g, ' ');
-
-        label.field = {
-          type: 'list',
-          value,
-        }
-      }
-
-      // already created label
-      if (prevLabels[label.title]) {
-        labelsMap[field.system_name] = prevLabels[label.title];
-        continue;
-      }
-
-      const labelData = await postToTestomatio(postLabelEndpoint, 'label', label)
-
-      if (!labelData) continue;
-
-      labelsMap[field.system_name] = labelData.id;
+    const suiteData = {
+      title: folder.name,
+      'file-type': isFolder ? 'folder' : 'file',      
     }
 
-    logData('Field Values', labelValuesMap);
+    const testomatioSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
 
-    const customFields = fields.reduce((acc, obj) => {
-      acc[obj.system_name] = obj;
-      return acc;
-    }, {});
-
-    logData('customFields', customFields);
-
-    // Get suites for the project
-    let suites = [];
-    if (suiteId) {
-      suites = await fetchFromTestRail(getSuiteEndpoint + suiteId);
+    if (isFolder) {
+      foldersMap[folder.folderId] = testomatioSuite.id;
     } else {
-      suites = await fetchFromTestRail(getSuitesEndpoint);
+      filesMap[folder.folderId] = testomatioSuite.id;
+    }
+    
+    logData('Suite created:', testomatioSuite.attributes.title);
+
+    if (isFolder && folder.testsCount > 0) {
+      suiteData['file-type'] = 'file';
+      suiteData['parent-id'] = testomatioSuite.id;
+      const testomatioFileSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
+      filesMap[folder.folderId] = testomatioFileSuite.id;
+
+      logData('Suite (file) created:', testomatioSuite.attributes.title);
     }
 
-    for (const suite of suites) {
+  }
 
-      const suiteData = {
-        title: suite.name,
-        'file-type': 'folder',
-        description: suite.description
-      };
+  for (const folder of folders.filter(f => f.folderId !== '-1' && f.parentFolderId !== '-1')) {
+    
+    const parentId = foldersMap[folder.parentFolderId];
+    const suiteId = foldersMap[folder.folderId] || filesMap[folder.folderId];
 
-      const testomatioSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
+    if (!suiteId) continue;
+  
+    await putToTestomatio(postSuiteEndpoint, 'suites', suiteId, { 'parent-id': parentId });
+  }
 
-      const sectionsMap = {};
-      const foldersIds = [];
-      const filesMap = {};
+  logData('Suites created:', foldersMap, filesMap);
+  // structure created, now upload test cases
 
-      const sections = await fetchFromTestRail(`${getSectionsEndpoint}&suite_id=${suite.id}`, 'sections')
+  for (const folder of folders) {
+    const folderData = await fetchTestsFromFolder(folder.folderId);
+    const suiteId = filesMap[folder.folderId];
 
-      console.log('SECTIONS:', sections.length);
-      // should load sections without pagination
-      for (const section of sections) {
+    if (!folderData.foldersTests) continue;
 
-        process.stdout.write('.');
+    for (const ft of folderData.foldersTests) {
+      for (const testId of ft.tests) {
 
-        const parentId = sectionsMap[section.parent_id];
+        const test = await fetchTestCase(testId);
 
-        const sectionData = {
-          title: section.name,
-          description: section.description,
-          position: section.display_order,
-          'parent-id': parentId ?? testomatioSuite?.id,
-        };
-
-        if (parentId) {
-          foldersIds.push(parentId);
-          await putToTestomatio(postSuiteEndpoint, 'suites', parentId, { 'file-type': 'folder' });
+        // pre-conditions?
+        if (!test) {
+          // WHY??
+          continue;
         }
 
-        const postSectionResponse = await postToTestomatio(postSuiteEndpoint, 'suites', sectionData);
-
-        sectionsMap[section.id] = postSectionResponse?.id;
-      }
-      console.log();
-
-      const testCases = await fetchFromTestRail(`${getCasesEndpoint}&suite_id=${suite.id}`, 'cases');
-
-      console.log('CASES:', testCases.length);
-
-      for (const testCase of testCases) {
-
-        process.stdout.write('.');
-
-        const caseCustomFieldNames = Object.keys(testCase).filter(key => key.startsWith('custom_'));
-
-        const descriptionParts = [];
-
-        for (const fieldName of caseCustomFieldNames) {
-          descriptionParts.push(await fetchDescriptionFromTestCase(testCase, customFields[fieldName]));
+        if (test.type !== 'Test') {
+          console.log('Skipping', test.type, "[Not Supported]: " , test.key);
+          logData('Skipping test:', test.summary);
+          continue;
+        }
+        
+        let steps;
+        try {
+          steps = await fetchSteps(testId);
+          logData('Steps fetched:', steps.length);
+        } catch (_err) {
+          continue;
         }
 
-        let description = descriptionParts.filter(d => !!d).map(d => d.trim()).join('\n\n---\n\n');
-
-        description = formatCodeBlocks(description);
-
-        logData('description', descriptionParts);
-
-        // select corresponding suite
-        let suiteId = sectionsMap[testCase.section_id];
-
-        // this suite was created as a file type suite
-        if (filesMap[suiteId]) suiteId = filesMap[suiteId];
-
-        // this suite was created as a folder type suite,
-        // we need to create a file type instead
-        if (foldersIds.includes(suiteId)) {
-
-          // we need to create another file type suite
-          const title = sections.find(s => s.id === testCase.section_id)?.name || "Tests";
-          const suiteData = {
-            title,
-            'file-type': 'file',
-            'parent-id': suiteId,
-            position: 1,
-            description: sections.find(s => s.id === suiteId)?.description
-          };
-          const newSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
-          filesMap[suiteId] = newSuite.id;
-          suiteId = newSuite.id;
-        }
-
-        const caseData = {
-          title: testCase.title,
-          priority: priorities[testCase.priority_id] || 0,
-          description,
-          position: testCase.display_order,
+        const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
+          title: test.summary,
           'suite-id': suiteId,
-        };
-
-        const test = await postToTestomatio(postTestEndpoint, 'tests', caseData);
-
-        if (!test) continue;
-
-        // cross link to testrail
-        await postToTestomatio(postIssueLinkEndpoint, null, {
-          test_id: test.id,
-          url: `${getTestRailUrl()}/cases/view/${testCase.id}`,
+          description: test.description,
+          priority: convertPriority(test.priority),
         });
 
-        const attachments = await fetchFromTestRail(`${getAttachmentsEndpoint}${testCase.id}`, 'attachments');
+        logData('Test created:', testomatioTest.attributes.title);
 
-        logData('attachments', attachments);
+        let description = test.description;
 
-        for (const attachment of attachments) {
-          const file = await downloadFile(downloadAttachmentEndpoint + attachment.id);
+        for (const fileName in test.attachments) {
+          const filePath = test.attachments[fileName];
+          const attachmentUrl = await uploadFile(testomatioTest.id, filePath, {
+            name: fileName,
+          });
 
-          const url = await uploadFile(test.id, file, attachment);
-
-          if (!url) continue;
-
-          if (attachment.is_image) {
-            description = description.replaceAll(`(index.php?/attachments/get/${attachment.id})`, `(${url})`)
+          if (fileName.endsWith('.png') || fileName.endsWith('.jpg')) {
+            description = description.replaceAll(`![](${fileName})`, `![](${attachmentUrl})`); 
           } else {
-            description = description.replaceAll(`![](index.php?/attachments/get/${attachment.id})`, `[📎 ${attachment.name}](${url})`)
-          }
-          // if we have old links left, replace them with new ones
-          description = description.replaceAll(`index.php?/attachments/get/${attachment.id}`, url);
-
-
-          logData('description', description);
+            description = description.replaceAll(`![](${fileName})`, `[Attachment](${attachmentUrl})`);
+          }          
         }
 
-        const otherAttachmentIds = Array.from(description.matchAll(/index\.php\?\/attachments\/get\/([\da-f-]+)/g)).map(m => m[1]);
+        if (steps.length) {
+          description += '\n\n';
+          description += '## Steps\n\n';
+          description += steps.map((step, index) => {
+            const stepLines = [];
+            stepLines.push(`* ${step.action}`);            
+            if (step.data) stepLines.push("```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\{', '{') + "\n```");
+            if (step.result) stepLines.push("*Expected*: " + step.result);
+            return stepLines.join('\n');
+          }).join('\n\n');
 
-        if (otherAttachmentIds.length) logData('Extra attachments to upload:', otherAttachmentIds);
+          const attachments = steps.map(step => step.attachments).flat();
 
-        for (const attachmentId of otherAttachmentIds) {
-          const file = await downloadFile(downloadAttachmentEndpoint + attachmentId);
+          for (const attachment of attachments) {
+            const filePath = await downloadAttachment(attachment);
 
-          const url = await uploadFile(test.id, file, { id: attachmentId });
+            const attachmentUrl = await uploadFile(testomatioTest.id, filePath, {
+              name: attachment.filename,
+            });
 
-          if (!url) continue;
-
-          description = description.replaceAll(`index.php?/attachments/get/${attachmentId}`, url);
-        }
-
-        await putToTestomatio(postTestEndpoint, 'tests', test.id, { description });
-
-        // refs
-        const refs = testCase.refs?.split(',').map(ref => ref.trim()).filter(ref => !!ref);
-
-        if (refs?.length) {
-          logData('refs', refs);
-          for (const ref of refs) {
-            try {
-              if (ref.startsWith('https://')) {
-                await postToTestomatio(postIssueLinkEndpoint, null, {
-                  test_id: test.id,
-                  url: ref,
-                });
-                continue;
-              }
-              await postToTestomatio(`${postJiraIssueEndpoint}?test_id=${test.id}&jira_id=${ref}`);
-            } catch (error) {
-              console.error('Error adding ref:', error);
+            if (attachment.filename.endsWith('.png') || attachment.filename.endsWith('.jpg')) {
+              description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `![](${attachmentUrl})`); 
+            } else {
+              description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `[Attachment](${attachmentUrl})`);
             }
           }
         }
 
-        // labels
-        const labels = Object.keys(testCase).filter(key => key.startsWith('custom_') && labelsMap[key]);
-        for (const label of labels) {
-          const numValue = testCase[label];
-          if (numValue === null || numValue === undefined) continue;
-
-          let value = numValue;
-
-          labelValuesMap[label]?.forEach(m => {
-            if (m[0] == numValue.toString()) value = m[1].trim();
-          });
-
-          try {
-            await postToTestomatio(postLabelLinkEndpoint.replace(':lid', labelsMap[label]), null, {
-              test_id: test.id,
-              event: 'add',
-              value,
-            });
-          } catch (error) {
-            console.error('Error adding label:', error);
-          }
-        }
+        if (description !== test.description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest.id, {
+          description,
+        });        
       }
     }
-    console.log('Done');
-  } catch (error) {
-    console.error('Error:', error);
   }
+
+
+  // fetch each folder's tests
+
 }
 
-function fetchDescriptionFromTestCase(testCase, field) {
-
-  if (FIELD_TYPES[field.type_id] === 'Text') {
-    const text = testCase[field.system_name] || '';
-    if (!text) return '';
-    return `## ${field.label}\n\n${text.trim()}`;
+function convertPriority(priority) {
+  switch (priority) {
+    case 'Critical':
+    case 'Blocker':
+      return 'Blocker';
+    case 'Highest':
+      return 'important';
+    case 'High':
+      return 'high';
+    case 'Medium':
+      return 'normal';
+    case 'Low':
+    case 'Lowest':
+      return 'low';
+    default:
+      return 'normal';
   }
-
-  if (FIELD_TYPES[field.type_id] === 'URL') {
-    const text = testCase[field.system_name].trim() || '';
-    if (!text) return '';
-    return `[${field.label}](${text})`;
-  }
-
-  if (FIELD_TYPES[field.type_id] === 'Steps') {
-    const text = testCase[field.system_name]?.map(step => {
-      let res = step.content?.trim();
-      if (!res) return '';
-      if (!res.startsWith('- ')) res = '- ' + res;
-      if (step.expected) {
-        if (!step.expected.trim()) return "\n" + res;
-
-        res += '\n*Expected*: ' + step.expected.split('\n')
-          .map(line => line.trim())
-          .filter(line => !!line)
-          .map(line => {
-            if (line.startsWith('- ')) line = line.slice(2).trim();
-            return line;
-          })
-          .join('\n').trim();
-      }
-
-      return '\n' + res;
-    })?.join('\n');
-
-    if (!text) return '';
-    return `## ${field.label}\n\n${text.trim()}`;
-  }
-}
-
-function formatCodeBlocks(description) {
-
-  return description
-    .split('\n')
-    .map(line => {
-      // if it looks like HTML tag, wrap it in code block
-      if (line.trim().match(/^<\w+/)) {
-        return '`' + line.trim() + '`';
-      }
-      // todo: add more checks for code blocks
-      return line;
-    })
-    .join('\n')
-    .replace(/(<[^>]+>)/g, '`$1`');
-}
-
-function convertPriorities(priorities) {
-  const convertedPriorities = {}
-
-  const defaultIndex = priorities.find(p => p.short_name == 'Medium' || p.is_default)?.priority || 0;
-
-  priorities.forEach((priority) => {
-    const index = priority.priority;
-
-    let value = 0;
-
-    if (index < defaultIndex) {
-      value = -1;
-    } else if (index > defaultIndex) {
-      value = Math.min(index - defaultIndex, 3);
-    }
-    convertedPriorities[priority.id] = value;
-  });
-
-  return convertedPriorities;
 }

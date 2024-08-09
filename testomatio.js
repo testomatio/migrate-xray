@@ -1,7 +1,7 @@
 import fs from 'fs';
 import debug from 'debug';
 
-const logOutput = debug('testomatio:testrail:out');
+const logOutput = debug('testomatio:xray:out');
 
 // disable all save requests
 const DRY_RUN = !!process.env.DRY_RUN;

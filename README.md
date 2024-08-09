@@ -1,4 +1,4 @@
-# TestRail ➡ Testomat.io Migration Script
+# XRay ➡ Testomat.io Migration Script
 
 This script migrates test cases from TestRail to [Testomat.io](https://testomat.io) via API.
 
@@ -26,6 +26,21 @@ npm i
 ```
 npm start
 ```
+
+## Troubleshooting
+
+#### Authentication request has expired. Try reloading the page
+
+If you see error like this:
+
+```
+Error fetching data: Error: Failed to fetch data: /test-repository: 401 Unauthorized
+{"error":"Authentication request has expired. Try reloading the page."}
+```
+
+Try to open XRay app and fetch a new token and run script again.
+
+
 
 ## Debugging
 

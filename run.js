@@ -1,16 +1,20 @@
 import 'dotenv/config'
 import migrateTestCases from './migrate.js';
-import { configureTestRail } from './testrail.js';
+import { configureJira } from './jira.js';
+import { configureXRay } from './xray.internal.js';
 import { configureTestomatio } from './testomatio.js';
 
 // ENABLE THIS LINE TO RUN THE SCRIPT
-// PASS VALID VARIABLES TO ACCESS TESTRAIL
-// configureTestRail(testrailBaseUrl, username, password, projectId);
-configureTestRail(
-  process.env.TESTRAIL_URL,
-  process.env.TESTRAIL_USERNAME, 
-  process.env.TESTRAIL_PASSWORD, 
-  process.env.TESTRAIL_PROJECT_ID
+// PASS VALID VARIABLES TO ACCESS XRAY
+configureJira(
+  process.env.JIRA_URL,
+  process.env.JIRA_USERNAME, 
+  process.env.JIRA_TOKEN, 
+  process.env.JIRA_PROJECT_ID
+);
+
+configureXRay(
+  process.env.XRAY_INTERNAL_TOKEN,
 );
 
 // ENABLE THIS LINE TO RUN THE SCRIPT
