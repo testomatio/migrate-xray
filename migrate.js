@@ -195,6 +195,7 @@ export default async function migrateTestCases() {
   }
 
   console.log('Tests created', testsCreated);
+  console.log('All preconditions were prepended to tests');
   // fetch each folder's tests
 
 }
