@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { fetchFromJira, getJiraEndpoints } from './jira.js';
 import debug from 'debug';
 
-const logInput = debug('testomatio:in:xray:in');
+const logInput = debug('testomatio:xray:in');
 
 let xrayToken;
 let xrayEndpoint = 'https://eu.xray.cloud.getxray.app/api/internal';
@@ -21,7 +21,7 @@ export function configureXRay(xAcptToken, endpoint = null) {
 }
 
 export async function fetchFromXRay(url, method = 'GET', body = {}) {
-  
+
   if (!jiraProjctId) {
     const jiraProjects = await fetchFromJira(getJiraEndpoints().getProjectEndpoint);
     if (!jiraProjects || !jiraProjects.length) {
@@ -29,7 +29,7 @@ export async function fetchFromXRay(url, method = 'GET', body = {}) {
     }
     jiraProjctId = jiraProjects[0].id;
   }
-  
+
   body.projectId = jiraProjctId;
 
   if (method === 'GET') body = null;
@@ -46,14 +46,14 @@ export async function fetchFromXRay(url, method = 'GET', body = {}) {
         "x-acpt": xrayToken,
       }
     });
-  
+
     if (!response.ok) {
       throw new Error(`Failed to fetch data: ${url}: ${response.status} ${response.statusText}\n${await response.text()}`);
     }
-  
+
     const data = await response.json();
     logInput('Fetched data from:', url.toString(), data);
-  
+
     return data;
 
   } catch (error) {
@@ -79,6 +79,12 @@ export async function fetchSteps(testId) {
   return steps.steps;
 }
 
+export async function fetchPreconditions(testId) {
+
+  const preconditions = await fetchFromXRay(`/issuelinks/test/${testId}/preconditions`, 'GET');
+
+  return preconditions.map(p => p.id);
+}
 
 export async function downloadAttachment(attachment) {
   const attachmentId = attachment.id;

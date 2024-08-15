@@ -12,6 +12,7 @@ let projectId;
 
 const jiraApiPrefix = '/rest/api/3';
 
+const preConditionType = process.env.JIRA_PRECONDITION_ISSUE_TYPE || 'Pre-conditions';
 
 export function configureJira(jiraBaseUrl, jiraUsername, jiraToken, jiraProject) {
 
@@ -28,6 +29,7 @@ export function configureJira(jiraBaseUrl, jiraUsername, jiraToken, jiraProject)
 export function getJiraEndpoints() {
   return {
     getTestsEndpoint: `/search?jql=${encodeURIComponent(`project = ${projectId} AND issuetype = Test`)}&maxResults=1000`, // Requires project ID
+    getPreconditionsEndpoint: `/search?jql=${encodeURIComponent(`project = ${projectId} AND issuetype = ${preConditionType}`)}`, // Requires project ID
     getFieldsEndpoint: '/field',
     getAttachmentEndpoint: '/attachment/content/',
     getProjectEndpoint: `/project/${projectId}`,
@@ -38,15 +40,16 @@ export function getJiraUrl() {
   return baseUrl;
 }
 
+
 export async function fetchFromJira(endpoint, type = null) {
   let items = [];
   let fetchUrl = jiraApiPrefix + endpoint;
 
   logInput('Fetching data from Jira:', `${baseUrl}${fetchUrl}`);
 
-  do {    
+  do {
     const url = new URL(fetchUrl, baseUrl);
-    
+
     try {
       const response = await fetch(url, {
         method: 'GET',
@@ -91,10 +94,10 @@ export async function fetchFromJira(endpoint, type = null) {
 export async function fetchCustomFields() {
   try {
     const customFields = await fetchFromJira(getJiraEndpoints().getFieldsEndpoint);
-    
+
     // Filter to only custom fields
     const onlyCustomFields = customFields.filter(field => field.custom);
-    
+
     // Create a mapping of customfield_XXXXX to field name
     const customFieldMapping = {};
     onlyCustomFields.forEach(field => {
@@ -158,11 +161,11 @@ async function downloadAttachments(issueKey) {
 export async function fetchTestCase(issueId) {
   try {
     const issue = (await fetchFromJira(`/issue/${issueId}`))[0];
-    
+
     if (!issue) return;
 
     const description = transformDescription(issue);
-  
+
     const attachments = await downloadAttachments(issue.key);
 
     return {
@@ -208,13 +211,13 @@ export async function fetchTestCases() {
 
 function _convert(node, warnings) {
 	switch (node.type) {
-    
+
 		case 'doc':
       return node.content.map(node => _convert(node, warnings)).join('\n\n');
-      
+
       case 'text':
         return `${_convertMarks(node, warnings)}`;
-        
+
     case 'nestedExpand':
 		case 'paragraph':
 			return node.content.map(node => _convert(node, warnings)).join('');

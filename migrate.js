@@ -1,6 +1,6 @@
 import debug from 'debug';
-import { fetchCustomFields, fetchTestCases, fetchTestCase } from './jira.js';
-import { fetchRepository, fetchTestsFromFolder, fetchSteps, downloadAttachment } from './xray.internal.js';
+import { fetchCustomFields, fetchTestCase } from './jira.js';
+import { fetchRepository, fetchTestsFromFolder, fetchSteps, fetchPreconditions, downloadAttachment } from './xray.internal.js';
 import { getTestomatioEndpoints, loginToTestomatio, uploadFile, fetchFromTestomatio, postToTestomatio, putToTestomatio } from './testomatio.js';
 
 const logData = debug('testomatio:xray:migrate');
@@ -16,15 +16,15 @@ export default async function migrateTestCases() {
     postLabelLinkEndpoint,
   } = getTestomatioEndpoints();
 
+  // in case custom fields needed
   // await fetchCustomFields();
-  // API endpoints
 
   // IF XRAY API IS NOT AVAILABLE WE CAN IMPORT TEST CASES ONLY
   // const testCases = await fetchTestCases();
-  
+
   // const repositories = await fetchFromXRay(getXRayEndpoints().getTestRepositories);
   const repository = await fetchRepository();
-  
+
   await loginToTestomatio();
 
   const folders = repository.folders;
@@ -41,7 +41,7 @@ export default async function migrateTestCases() {
 
     const suiteData = {
       title: folder.name,
-      'file-type': isFolder ? 'folder' : 'file',      
+      'file-type': isFolder ? 'folder' : 'file',
     }
 
     const testomatioSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
@@ -51,7 +51,7 @@ export default async function migrateTestCases() {
     } else {
       filesMap[folder.folderId] = testomatioSuite.id;
     }
-    
+
     logData('Suite created:', testomatioSuite.attributes.title);
 
     if (isFolder && folder.testsCount > 0) {
@@ -66,17 +66,21 @@ export default async function migrateTestCases() {
   }
 
   for (const folder of folders.filter(f => f.folderId !== '-1' && f.parentFolderId !== '-1')) {
-    
+
     const parentId = foldersMap[folder.parentFolderId];
     const suiteId = foldersMap[folder.folderId] || filesMap[folder.folderId];
 
     if (!suiteId) continue;
-  
+
     await putToTestomatio(postSuiteEndpoint, 'suites', suiteId, { 'parent-id': parentId });
   }
 
   logData('Suites created:', foldersMap, filesMap);
   // structure created, now upload test cases
+
+  let testsCreated = 0;
+
+  console.log('Creating tests...');
 
   for (const folder of folders) {
     const folderData = await fetchTestsFromFolder(folder.folderId);
@@ -96,11 +100,11 @@ export default async function migrateTestCases() {
         }
 
         if (test.type !== 'Test') {
-          console.log('Skipping', test.type, "[Not Supported]: " , test.key);
+          // console.log('Skipping', test.type, "[Not Supported]: " , test.key);
           logData('Skipping test:', test.summary);
           continue;
         }
-        
+
         let steps;
         try {
           steps = await fetchSteps(testId);
@@ -109,12 +113,26 @@ export default async function migrateTestCases() {
           continue;
         }
 
+
+        let preconditions = [];
+        try {
+          const preconditionIds = await fetchPreconditions(testId);
+          for (const preconditionId of preconditionIds) {
+            const preconditionData = await fetchTestCase(preconditionId);
+            preconditions.push(preconditionData);
+          }
+          logData('Preconditions fetched:', preconditions.length);
+        } catch (_err) {
+        }
+
         const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
           title: test.summary,
           'suite-id': suiteId,
           description: test.description,
           priority: convertPriority(test.priority),
         });
+
+        testsCreated++;
 
         logData('Test created:', testomatioTest.attributes.title);
 
@@ -127,10 +145,18 @@ export default async function migrateTestCases() {
           });
 
           if (fileName.endsWith('.png') || fileName.endsWith('.jpg')) {
-            description = description.replaceAll(`![](${fileName})`, `![](${attachmentUrl})`); 
+            description = description.replaceAll(`![](${fileName})`, `![](${attachmentUrl})`);
           } else {
             description = description.replaceAll(`![](${fileName})`, `[Attachment](${attachmentUrl})`);
-          }          
+          }
+        }
+
+        if (preconditions.length) {
+          let preconditionText = `## Preconditions\n\n`;
+
+          preconditionText += preconditions.map(p => `#### ${p.summary}\n\n${p.description}`).join('\n\n');
+
+          description = preconditionText + description;
         }
 
         if (steps.length) {
@@ -138,8 +164,8 @@ export default async function migrateTestCases() {
           description += '## Steps\n\n';
           description += steps.map((step, index) => {
             const stepLines = [];
-            stepLines.push(`* ${step.action}`);            
-            if (step.data) stepLines.push("```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\{', '{') + "\n```");
+            stepLines.push(`* ${step.action}`);
+            if (step.data) stepLines.push("```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\\{', '{') + "\n```");
             if (step.result) stepLines.push("*Expected*: " + step.result);
             return stepLines.join('\n');
           }).join('\n\n');
@@ -154,7 +180,7 @@ export default async function migrateTestCases() {
             });
 
             if (attachment.filename.endsWith('.png') || attachment.filename.endsWith('.jpg')) {
-              description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `![](${attachmentUrl})`); 
+              description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `![](${attachmentUrl})`);
             } else {
               description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `[Attachment](${attachmentUrl})`);
             }
@@ -163,12 +189,12 @@ export default async function migrateTestCases() {
 
         if (description !== test.description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest.id, {
           description,
-        });        
+        });
       }
     }
   }
 
-
+  console.log('Tests created', testsCreated);
   // fetch each folder's tests
 
 }
