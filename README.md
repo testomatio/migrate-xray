@@ -14,6 +14,16 @@ You are free to customize this script if the default behavior doesn't fit your n
 cp .env.example .env
 ```
 
+* Obtain [Jira API token](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/) from Jira
+* Fill in Jira credentials into `.env` file
+
+You should specify this variables in `.env` file:
+```
+JIRA_USERNAME=
+JIRA_TOKEN=
+JIRA_PROJECT_ID=
+```
+
 * Obtain XRay token from XRay app
 
 > ! Due to unavaibility of XRay API, you need to obtain token manually.
@@ -28,13 +38,19 @@ Find any request to XRay API, and in `Headers` tab find `X-Acpt` header. This is
 
 ![](./assets/xray_token.png)
 
-Copy it to `.env` file
+Copy it to `.env` file as `XRAY_INTERNAL_TOKEN` value
 
+* Fill in Testomat.io credentials into `.env` file
+* Create [General Token](https://app.testomat.io/account/access_tokens) in Testomat.io
+* Fill in Testomat.io credentials into `.env` file
 
+```
+TESTOMATIO_TOKEN=testomat_****
+TESTOMATIO_PROJECT=**
+```
 
-copy `Authorization` header from any request to XRay API.
+> `TESTOMATIO_PROJECT` is a project URL part, e.g. for `https://app.testomat.io/projects/your-project` it is `your-project`
 
-* Fill in XRay and Testomat.io credentials into `.env` file
 * Install dependencies
 
 ```
@@ -72,7 +88,7 @@ To enable more verbose output you can add debug flags via `DEBUG=` environment v
 * `DEBUG="testomatio:xray:*"` - print all debug information
 
 ```
-DEBUG="testomatio:testrail:*" npm start
+DEBUG="testomatio:xray:*" npm start
 ```
 
 ## Customization
