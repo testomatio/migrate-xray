@@ -210,86 +210,104 @@ export async function fetchTestCases() {
 }
 
 function _convert(node, warnings) {
-	switch (node.type) {
+  switch (node.type) {
 
-		case 'doc':
+    case 'panel':
+      const type = node.attrs.panelType;
+      let emoji = '';
+      switch (type) {
+        case 'warning': emoji = '⚠️'; break;
+        case 'success': emoji = '✅'; break;
+        case 'info': emoji = 'ℹ️'; break;
+        case 'note': emoji = '🗒'; break;
+        case 'error': emoji = '❌'; break;
+      }
+
+      const parts = node.content.map(node => _convert(node, warnings));
+      parts[0] = `${emoji} ${parts[0]}`;
+      return parts.join('\n\n');
+    case 'doc':
       return node.content.map(node => _convert(node, warnings)).join('\n\n');
 
-      case 'text':
-        return `${_convertMarks(node, warnings)}`;
+    case 'expand':
+      return `#### ${node.attrs.title}\n\n` + node.content.map(node => _convert(node, warnings)).join('\n\n');
+    case 'text':
+      return `${_convertMarks(node, warnings)}`;
 
+    case 'expand':
+      console.log('here panel');
     case 'nestedExpand':
-		case 'paragraph':
-			return node.content.map(node => _convert(node, warnings)).join('');
+    case 'paragraph':
+      return node.content.map(node => _convert(node, warnings)).join('');
 
-		case 'heading':
-			return `${'#'.repeat(node.attrs.level)} ${node.content.map(node => _convert(node, warnings)).join('')}`;
+    case 'heading':
+      return `${'#'.repeat(node.attrs.level)} ${node.content.map(node => _convert(node, warnings)).join('')}`;
 
-		case 'hardBreak':
-			return '\n';
+    case 'hardBreak':
+      return '\n';
 
-		case 'inlineCard':
-		case 'blockCard':
-		case 'embedCard':
-			return `[${node.attrs.url}](${node.attrs.url})`;
+    case 'inlineCard':
+    case 'blockCard':
+    case 'embedCard':
+      return `[${node.attrs.url}](${node.attrs.url})`;
 
-		case 'blockquote':
-			return `> ${node.content.map(node => _convert(node, warnings)).join('\n> ')}`;
+    case 'blockquote':
+      return `> ${node.content.map(node => _convert(node, warnings)).join('\n> ')}`;
 
-		case 'bulletList':
-		case 'orderedList':
-			return `${node.content.map((subNode) => {
-				const converted = _convert.call(node, subNode, warnings);
+    case 'bulletList':
+    case 'orderedList':
+      return `${node.content.map((subNode) => {
+        const converted = _convert.call(node, subNode, warnings);
 
-				if (node.type === 'orderedList') {
-					if (!node.attrs) {
-						node.attrs = {
-							order: 1,
-						};
-					}
+        if (node.type === 'orderedList') {
+          if (!node.attrs) {
+            node.attrs = {
+              order: 1,
+            };
+          }
 
-					node.attrs.order += 1;
-				}
+          node.attrs.order += 1;
+        }
 
-				return converted;
-			}).join('\n')}`;
+        return converted;
+      }).join('\n')}`;
 
-		case 'listItem': {
-			const order = this.attrs ? this.attrs.order || 1 : 1;
-			const symbol = this.type === 'bulletList' ? '*' : `${order}.`;
-			return `  ${symbol} ${node.content.map(node => _convert(node, warnings).trimEnd()).join(` `)}`;
-		}
+    case 'listItem': {
+      const order = this.attrs ? this.attrs.order || 1 : 1;
+      const symbol = this.type === 'bulletList' ? '*' : `${order}.`;
+      return `  ${symbol} ${node.content.map(node => _convert(node, warnings).trimEnd()).join(` `)}`;
+    }
 
-		case 'codeBlock': {
-			const language = node.attrs ? ` ${node.attrs.language}` : '';
-			return `\`\`\`${language}\n${node.content.map(node => _convert(node, warnings)).join('\n')}\n\`\`\``;
-		}
+    case 'codeBlock': {
+      const language = node?.attrs?.language || '';
+      return `\n\`\`\`${language}\n${node.content.map(node => _convert(node, warnings)).join('\n')}\n\`\`\``;
+    }
 
-		case 'rule':
-			return '\n\n---\n';
+    case 'rule':
+      return '\n\n---\n';
 
-		case 'emoji':
-			return node.attrs.shortName;
+    case 'emoji':
+      return node.attrs.shortName;
 
-		case 'table':
-			return node.content.map(node => _convert(node, warnings)).join('').replaceAll('|:-:', '|:---');
+    case 'table':
+      return node.content.map(node => _convert(node, warnings)).join('').replaceAll('|:-:', '|:---');
 
-		case 'tableRow': {
-			let output = '|';
-			let thCount = 0;
-			output += node.content.map((subNode) => {
-				thCount += subNode.type === 'tableHeader' ? 1 : 0;
-				return _convert(subNode);
-			}).join('');
-			output += thCount ? `\n${'|:-:'.repeat(thCount)}|\n` : '\n';
-			return output;
-		}
+    case 'tableRow': {
+      let output = '|';
+      let thCount = 0;
+      output += node.content.map((subNode) => {
+        thCount += subNode.type === 'tableHeader' ? 1 : 0;
+        return _convert(subNode);
+      }).join('');
+      output += thCount ? `\n${'|:-:'.repeat(thCount)}|\n` : '\n';
+      return output;
+    }
 
-		case 'tableHeader':
-			return `${node.content.map(node => _convert(node, warnings)).join('')}|`;
+    case 'tableHeader':
+      return `${node.content.map(node => _convert(node, warnings)).join('')}|`;
 
-		case 'tableCell':
-			return `${node.content.map(node => _convert(node, warnings)).join('')}|`;
+    case 'tableCell':
+      return `${node.content.map(node => _convert(node, warnings)).join('')}|`;
 
     case 'mediaSingle':
       return node.content.map(node => _convert(node, warnings)).join('');
@@ -298,47 +316,47 @@ function _convert(node, warnings) {
       // we store alt as a file name
       return `![](${node.attrs.alt})`;
 
-		default:
-			console.log('Error parsing', node.type);
-			return '';
-	}
+    default:
+      console.log('Error parsing', node.type);
+      return '';
+  }
 
 }
 
 function _convertMarks(node, warnings) {
-	if (!node.hasOwnProperty('marks') || !Array.isArray(node.marks)) {
-		return node.text;
-	}
+  if (!node.hasOwnProperty('marks') || !Array.isArray(node.marks)) {
+    return node.text;
+  }
 
-	return node.marks.reduce((converted, mark) => {
-		switch (mark.type) {
-			case 'code':
-				converted = `\`${converted}\``;
-				break;
+  return node.marks.reduce((converted, mark) => {
+    switch (mark.type) {
+      case 'code':
+        converted = `\`${converted}\``;
+        break;
 
-			case 'em':
-				converted = `_${converted}_`;
-				break;
+      case 'em':
+        converted = `_${converted}_`;
+        break;
 
-			case 'link':
-				converted = `[${converted}](${mark.attrs.href})`;
-				break;
+      case 'link':
+        converted = `[${converted}](${mark.attrs.href})`;
+        break;
 
-			case 'strike':
-				converted = `~${converted}~`;
-				break;
+      case 'strike':
+        converted = `~${converted}~`;
+        break;
 
-			case 'strong':
-				converted = `**${converted}**`;
-				break;
+      case 'strong':
+        converted = `**${converted}**`;
+        break;
 
-			default: // not supported
-				warnings.add(mark.type);
-				break;
-		}
+      default: // not supported
+        warnings.add(mark.type);
+        break;
+    }
 
-		return converted;
-	}, node.text);
+    return converted;
+  }, node.text);
 }
 
 function transformDescription(issue) {
