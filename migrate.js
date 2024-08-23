@@ -82,6 +82,8 @@ export default async function migrateTestCases() {
 
   console.log('Creating tests...');
 
+  let rootSuiteId;
+
   for (const folder of folders) {
     const folderData = await fetchTestsFromFolder(folder.folderId);
     const suiteId = filesMap[folder.folderId];
@@ -125,9 +127,20 @@ export default async function migrateTestCases() {
         } catch (_err) {
         }
 
+        if (!suiteId && !rootSuiteId) {
+          const testomatioRootSuite = await postToTestomatio(postSuiteEndpoint, 'suites', {
+            title: 'Root',
+            'file-type': 'file',
+            position: 1,
+            emoji: '📂',
+          });
+
+          rootSuiteId = testomatioRootSuite.id;
+        }
+
         const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
           title: test.summary,
-          'suite-id': suiteId,
+          'suite-id': suiteId || rootSuiteId,
           description: test.description,
           priority: convertPriority(test.priority),
         });
