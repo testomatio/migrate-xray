@@ -343,16 +343,18 @@ function _convertMarks(node, warnings) {
         break;
 
       case 'strike':
-        converted = `~${converted}~`;
+        converted = `<del>${converted}</del>`;
         break;
+
+      case 'underline':
+        converted = `<u>${converted}</u>`;
+        break;
+  
 
       case 'strong':
         converted = `**${converted}**`;
         break;
 
-      default: // not supported
-        warnings.add(mark.type);
-        break;
     }
 
     return converted;
