@@ -20,6 +20,7 @@ export function getTestomatioEndpoints() {
     postIssueLinkEndpoint: `/api/${project}/ims/issues/link`,
     postJiraIssueEndpoint: `/api/${project}/jira/issues`,
     postLabelEndpoint: `/api/${project}/labels`,
+    postExampleEndpoint: `/api/${project}/examples`,
     postLabelLinkEndpoint: `/api/${project}/labels/:lid/link`,
   }
 }

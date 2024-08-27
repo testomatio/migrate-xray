@@ -76,7 +76,10 @@ Error fetching data: Error: Failed to fetch data: /test-repository: 401 Unauthor
 
 Try to open XRay app and fetch a new token and run script again.
 
+## Known Limitations
 
+* **Test Params are not obtained** from a test case, as they are not availble in XRay API
+* If test calls steps from another test, this test should be imported first, otherwise you will get `[steps from a missing XRay test]` in a test description
 
 ## Debugging
 

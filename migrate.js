@@ -1,6 +1,6 @@
 import debug from 'debug';
 import { fetchCustomFields, fetchTestCase } from './jira.js';
-import { fetchRepository, fetchTestsFromFolder, fetchSteps, fetchPreconditions, downloadAttachment } from './xray.internal.js';
+import { fetchRepository, fetchTestsFromFolder, fetchSteps, fetchParams, fetchExamples, fetchPreconditions, downloadAttachment } from './xray.internal.js';
 import { getTestomatioEndpoints, loginToTestomatio, uploadFile, fetchFromTestomatio, postToTestomatio, putToTestomatio } from './testomatio.js';
 
 const logData = debug('testomatio:xray:migrate');
@@ -10,6 +10,7 @@ export default async function migrateTestCases() {
   const {
     postSuiteEndpoint,
     postTestEndpoint,
+    postExampleEndpoint,
     postJiraIssueEndpoint,
     postIssueLinkEndpoint,
     postLabelEndpoint,
@@ -33,6 +34,7 @@ export default async function migrateTestCases() {
 
   const foldersMap = {};
   const filesMap = {};
+  const testsMap = {};
 
   for (const folder of folders) {
     if (folder.folderId === '-1') continue;
@@ -47,20 +49,20 @@ export default async function migrateTestCases() {
     const testomatioSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
 
     if (isFolder) {
-      foldersMap[folder.folderId] = testomatioSuite.id;
+      foldersMap[folder.folderId] = testomatioSuite?.id;
     } else {
-      filesMap[folder.folderId] = testomatioSuite.id;
+      filesMap[folder.folderId] = testomatioSuite?.id;
     }
 
-    logData('Suite created:', testomatioSuite.attributes.title);
+    logData('Suite created:', testomatioSuite?.attributes?.title);
 
     if (isFolder && folder.testsCount > 0) {
       suiteData['file-type'] = 'file';
-      suiteData['parent-id'] = testomatioSuite.id;
+      suiteData['parent-id'] = testomatioSuite?.id;
       const testomatioFileSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
-      filesMap[folder.folderId] = testomatioFileSuite.id;
+      filesMap[folder.folderId] = testomatioFileSuite?.id;
 
-      logData('Suite (file) created:', testomatioSuite.attributes.title);
+      logData('Suite (file) created:', testomatioSuite?.attributes?.title);
     }
 
   }
@@ -135,7 +137,7 @@ export default async function migrateTestCases() {
             emoji: '📂',
           });
 
-          rootSuiteId = testomatioRootSuite.id;
+          rootSuiteId = testomatioRootSuite?.id;
         }
 
         const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
@@ -145,15 +147,17 @@ export default async function migrateTestCases() {
           priority: convertPriority(test.priority),
         });
 
+        testsMap[testId] = testomatioTest?.id;
+
         testsCreated++;
 
-        logData('Test created:', testomatioTest.attributes.title);
+        logData('Test created:', testomatioTest?.attributes?.title);
 
         let description = test.description;
 
         for (const fileName in test.attachments) {
           const filePath = test.attachments[fileName];
-          const attachmentUrl = await uploadFile(testomatioTest.id, filePath, {
+          const attachmentUrl = await uploadFile(testomatioTest?.id, filePath, {
             name: fileName,
           });
 
@@ -176,6 +180,11 @@ export default async function migrateTestCases() {
           description += '\n\n';
           description += '## Steps\n\n';
           description += steps.map((step, index) => {
+            if (!step.action && step.callTestIssueId) {
+              if (!testsMap[step.callTestIssueId]) return "* !!![steps from a missing XRay test]]]!!!"
+
+              return `* Steps from @T${testsMap[step.callTestIssueId]}`;
+            }
             const stepLines = [];
             stepLines.push(`* ${step.action}`);
             if (step.data) stepLines.push("```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\\{', '{') + "\n```");
@@ -200,9 +209,27 @@ export default async function migrateTestCases() {
           }
         }
 
-        if (description !== test.description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest.id, {
+        let params;
+        // FETCH PARAMS IS NOT IMPLEMENTED DUE API LIMITATION
+        // params = await fetchParams(testId)
+
+        if (description !== test.description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest?.id, {
+          // params,
           description,
         });
+
+        if (params) {
+          // FETCH EXAMPLES IS NOT IMPLEMENTED DUE API LIMITATION
+          // const examples = await fetchExamples(testId);
+          // console.log('examples');
+
+          // postToTestomatio(postExampleEndpoint, 'example', {
+          //   test_id: testomatioTest.id,
+          //   data: {
+          //      ....
+          //   }
+          // })
+        }
       }
     }
   }

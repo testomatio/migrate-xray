@@ -102,15 +102,73 @@ export async function downloadAttachment(attachment) {
   return filePath;
 }
 
-// export async function fetchVsersionId(testId) {
-//   const versions = await fetchFromXRay(`/tests/versions`, 'POST', {
-//     issueIds: [testId],
-//     includeArchived: true,
-//   });
+export async function fetchParams(testId) {
+  const paramDataset = await fetchFromXRay(`/paramDataset?testIssueId=${testId}`, 'GET');
 
-//   const version = Object.values(versions)[0];
+  if (!paramDataset) return;
 
-//   if (!version) return;
+  const params = paramDataset.parameters
 
-//   return version[0]?.testVersionId;
-// }
+  if (!params.length) return;
+
+  return params.map(p => p.name);
+}
+
+export async function fetchExamples(testId) {
+  const endpointUrl = new URL(xrayEndpoint);
+
+  const testVersionId = await fetchVsersionId(testId);
+
+  const url = `${endpointUrl.protocol}//${endpointUrl.host}/view/dialog/param-dataset-dialog?testIssueId=${testId}&testVersionId=${testVersionId}&jwt=${xrayToken}`;
+
+  console.log(url)
+
+  const resp = await fetch(url, {
+    method: 'GET',
+    "accept": "text/html",
+  })
+
+  const html = await resp.text();
+
+  console.log(html);
+
+  const rows = getDataFromHtml(html, 'dataset-rows');
+
+  return rows;
+}
+
+
+async function getDataFromHtml(html, id) {
+  try {
+    // Load the HTML content into cheerio
+    const $ = cheerio.load(html);
+
+    // Find the input element with the specified id
+    const element = $(`#${id}`);
+
+    if (element.length === 0) {
+      throw new Error(`Could not find element with id="${id}"`);
+    }
+
+    // Get the value attribute and parse it as JSON
+    const jsonData = JSON.parse(element.val());
+
+    return jsonData;
+  } catch (error) {
+    console.error('Error parsing the HTML or JSON:', error);
+    return null;
+  }
+}
+
+export async function fetchVsersionId(testId) {
+  const versions = await fetchFromXRay(`/tests/versions`, 'POST', {
+    issueIds: [testId],
+    includeArchived: true,
+  });
+
+  const version = Object.values(versions)[0];
+
+  if (!version) return;
+
+  return version[0]?.testVersionId;
+}
