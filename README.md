@@ -28,10 +28,10 @@ JIRA_PROJECT_ID=
 
 > ! Due to unavaibility of XRay API, you need to obtain token manually.
 
-Open XRay app, open DevTools (F12), go to Network tab, and find XRay requests by filtering by URL
+Open XRay app, open DevTools (F12), go to Network tab, and find XRay requests by filtering Network Requests by URL:
 
 ```
-https://eu.xray.cloud.getxray.app
+url:xray.cloud.getxray.app
 ```
 
 Find any request to XRay API, and in `Headers` tab find `X-Acpt` header. This is your token.
