@@ -26,7 +26,8 @@ JIRA_PROJECT_ID=
 
 * Obtain XRay token from XRay app
 
-> ! Due to unavaibility of XRay API, you need to obtain token manually.
+> [!IMPORTANT]
+> Due to unavaibility of XRay API, you need to obtain token manually.
 
 Open XRay app, open DevTools (F12), go to Network tab, and find XRay requests by filtering Network Requests by URL:
 
@@ -57,8 +58,8 @@ XRAY_URL=
 XRAY_INTERNAL_TOKEN=
 ```
 
-> [!NOTE]
-> It is possible to import a single folder from XRay. Open a XRay folder in a Test Repository and copy current URL, find `selectedFolder=` param with a folder ID as value. Copy this value from URL and set as `XRAY_FOLDER_ID` in `.env` file
+> [!TIP]
+> It is possible to import a single folder from XRay. Open a XRay folder in a Test Repository and copy current URL, find `selectedFolder=` param with a folder ID as value. Copy this value from URL and set as `XRAY_FOLDER_ID` in `.env` file.
 
 * Fill in Testomat.io credentials into `.env` file
 * Create [General Token](https://app.testomat.io/account/access_tokens) in Testomat.io
