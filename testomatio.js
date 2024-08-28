@@ -12,6 +12,9 @@ let project;
 
 let jwtToken;
 
+// for rate limit
+let attempt = 0;
+
 export function getTestomatioEndpoints() {
   return {
     postSuiteEndpoint: `/api/${project}/suites`,
@@ -56,7 +59,7 @@ export async function fetchFromTestomatio(endpoint) {
   if (DRY_RUN) return;
   const response = await fetch(`${host}/${endpoint}`, {
     headers: {
-      'Authorization': jwtToken, 
+      'Authorization': jwtToken,
     },
   });
 
@@ -67,53 +70,42 @@ export async function fetchFromTestomatio(endpoint) {
   return response.json();
 }
 
+
 export async function postToTestomatio(endpoint, type = null, data = {}) {
   if (DRY_RUN) return;
+
+  const maxAttempts = 3;
   let response;
   logOutput('AccessToken', jwtToken);
 
-  if (!type) {
-    try {
-      logOutput('postToTestomatio', `${host}/${endpoint}`, JSON.stringify(data));
+  const requestData = type
+    ? JSON.stringify({ data: { attributes: data, type } })
+    : JSON.stringify(data);
 
-      response = await fetch(`${host}${endpoint}`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': jwtToken, 
-        }});
-
-      if (!response.ok) {
-        throw new Error(`Failed to send data: ${response.status} ${response.statusText} ${await response.text()}`);
-      }        
-    } catch (error) {
-      console.error('Error:', error);
-    }
-    return response.json();
-  }  
-  
-  logOutput('postToTestomatio', `${host}/${endpoint}`, JSON.stringify({
-    data: {
-      attributes: data,
-      type,
-    }
-  }));
+  const requestUrl = `${host}${endpoint}`;
 
   try {
-    response = await fetch(`${host}${endpoint}`, {
+    logOutput('postToTestomatio', requestUrl, requestData);
+
+    response = await fetch(requestUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': jwtToken, 
+        'Authorization': jwtToken,
       },
-      body: JSON.stringify({
-        data: {
-          attributes: data,
-          type,
-        }
-      }),
+      body: requestData,
     });
+
+    if (response.status === 429) {
+      if (attempt < maxAttempts) {
+        attempt++;
+        console.log(`Rate limit hit. Waiting for 1 minute before retrying... (Attempt ${attempt})`);
+        await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
+        return postToTestomatio(endpoint, type, data); // Retry after waiting
+      } else {
+        throw new Error('Max retry attempts reached. Halting.');
+      }
+    }
 
     if (!response.ok) {
       throw new Error(`Failed to send data: ${response.status} ${response.statusText} ${await response.text()}`);
@@ -123,16 +115,20 @@ export async function postToTestomatio(endpoint, type = null, data = {}) {
     console.error('Error:', error);
     return;
   }
-  
+
   const json = await response.json();
   logOutput('postToTestomatio:response', json);
+
+  attempt = 0; // Reset attempts after successful request
   return json.data;
 }
 
-
 export async function putToTestomatio(endpoint, type, id, data) {
   if (DRY_RUN) return;
+
+  const maxAttempts = 3;
   let response;
+
   logOutput('putToTestomatio', `${host}/${endpoint}/${id}`, JSON.stringify({
     data: {
       attributes: data,
@@ -145,7 +141,7 @@ export async function putToTestomatio(endpoint, type, id, data) {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': jwtToken, 
+        'Authorization': jwtToken,
       },
       body: JSON.stringify({
         data: {
@@ -155,6 +151,17 @@ export async function putToTestomatio(endpoint, type, id, data) {
       }),
     });
 
+    if (response.status === 429) {
+      if (attempt < maxAttempts) {
+        console.log(`Rate limit hit. Waiting for 1 minute before retrying... (Attempt ${attempt})`);
+        await new Promise(resolve => setTimeout(resolve, 60000)); // Wait for 1 minute
+        attempt++;
+        return putToTestomatio(endpoint, type, id, data); // Retry with incremented attempt count
+      } else {
+        throw new Error('Max retry attempts reached. Halting.');
+      }
+    }
+
     if (!response.ok) {
       throw new Error(`Failed to send data: ${response.status} ${response.statusText} ${await response.text()}`);
     }
@@ -163,7 +170,7 @@ export async function putToTestomatio(endpoint, type, id, data) {
     console.error('Error:', error);
     return;
   }
-  
+  attempt = 0;
   const json = await response.json();
   return json.data;
 }
@@ -185,8 +192,8 @@ export const uploadFile = async (testId, filePath, attachment) => {
       method: 'POST',
       body: formData,
       headers: {
-        'Authorization': jwtToken, 
-      },      
+        'Authorization': jwtToken,
+      },
     });
 
     if (!response.ok) {

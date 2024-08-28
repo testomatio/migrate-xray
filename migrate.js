@@ -28,9 +28,15 @@ export default async function migrateTestCases() {
 
   await loginToTestomatio();
 
-  const folders = repository.folders;
+  let folders = repository.folders;
 
-  console.log("Creating suites...", folders.length - 1);
+  if (process.env.XRAY_FOLDER_ID) {
+    console.log('Importing single folder', process.env.XRAY_FOLDER_ID)
+    folders = findFolderById(folders, process.env.XRAY_FOLDER_ID);
+    if (!folders.length) throw new Error(`Folder with ID ${process.env.XRAY_FOLDER_ID} not found`);
+  }
+
+  console.log("Creating suites...");
 
   const foldersMap = {};
   const filesMap = {};
@@ -257,4 +263,45 @@ function convertPriority(priority) {
     default:
       return 'normal';
   }
+}
+
+
+function findFolderById(folders, folderId) {
+    let folderMap = {};
+
+    // Create a map of folders by their IDs
+    folders.forEach(folder => {
+        folderMap[folder.folderId] = folder;
+    });
+
+    // Helper function to find all descendants
+    function getDescendants(folder) {
+        let descendants = [];
+
+        function addDescendants(currentFolder) {
+            if (currentFolder.folders && currentFolder.folders.length) {
+                currentFolder.folders.forEach(id => {
+                    let childFolder = folderMap[id];
+                    if (childFolder) {
+                        descendants.push(childFolder);
+                        addDescendants(childFolder);
+                    }
+                });
+            }
+        }
+
+        addDescendants(folder);
+        return descendants;
+    }
+
+    // Find the folder by ID
+    let targetFolder = folderMap[folderId];
+    if (!targetFolder) {
+        return null; // Folder not found
+    }
+
+    // Get all parents and descendants
+    let descendants = getDescendants(targetFolder);
+
+    return [targetFolder, ...descendants];
 }

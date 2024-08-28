@@ -57,6 +57,9 @@ XRAY_URL=
 XRAY_INTERNAL_TOKEN=
 ```
 
+> [!NOTE]
+> It is possible to import a single folder from XRay. Open a XRay folder in a Test Repository and copy current URL, find `selectedFolder=` param with a folder ID as value. Copy this value from URL and set as `XRAY_FOLDER_ID` in `.env` file
+
 * Fill in Testomat.io credentials into `.env` file
 * Create [General Token](https://app.testomat.io/account/access_tokens) in Testomat.io
 * Fill in Testomat.io credentials into `.env` file
