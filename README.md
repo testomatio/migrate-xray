@@ -36,9 +36,26 @@ url:xray.cloud.getxray.app
 
 Find any request to XRay API, and in `Headers` tab find `X-Acpt` header. This is your token.
 
+Copy it to `.env` file as `XRAY_INTERNAL_TOKEN` value
+
+
+Also you will need XRAY URL to send request to. It can from be taken from `Origin`
+
+The value would probably be one of those:
+
+* `https://eu.xray.cloud.getxray.app`
+* `https://us.xray.cloud.getxray.app`
+
+Set it into `.env` as `XRAY_URL`
+
 ![](./assets/xray_token.png)
 
-Copy it to `.env` file as `XRAY_INTERNAL_TOKEN` value
+The XRAY config in `.env` file should specify these variables:
+
+```
+XRAY_URL=
+XRAY_INTERNAL_TOKEN=
+```
 
 * Fill in Testomat.io credentials into `.env` file
 * Create [General Token](https://app.testomat.io/account/access_tokens) in Testomat.io

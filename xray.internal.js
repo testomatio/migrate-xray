@@ -8,16 +8,24 @@ import debug from 'debug';
 const logInput = debug('testomatio:xray:in');
 
 let xrayToken;
-let xrayEndpoint = 'https://eu.xray.cloud.getxray.app/api/internal';
+let xrayEndpoint;
 let jiraProjctId;
 
-export function configureXRay(xAcptToken, endpoint = null) {
-  if (!xAcptToken) {
-    throw new Error('Missing required XRay configuration');
+export function configureXRay(url, xAcptToken) {
+  if (!url) {
+    throw new Error('Missing XRay URL');
   }
 
+  if (!xAcptToken) {
+    throw new Error('Missing required XRay Token');
+  }
+
+  if (!url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
+  xrayEndpoint = `${url}/api/internal`;
   xrayToken = xAcptToken;
-  if (endpoint) xrayEndpoint = endpoint;
 }
 
 export async function fetchFromXRay(url, method = 'GET', body = {}) {
