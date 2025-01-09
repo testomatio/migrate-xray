@@ -109,8 +109,8 @@ export default async function migrateTestCases() {
           continue;
         }
 
-        if (test.type !== 'Test') {
-          // console.log('Skipping', test.type, "[Not Supported]: " , test.key);
+        if (!['Test', 'XRay Test'].includes(test.type)) {
+          console.log('Skipping', testId, `Test type '${test.type}' is not considered for exporting. Edit migrate.js file change that`);
           logData('Skipping test:', test.summary);
           continue;
         }
