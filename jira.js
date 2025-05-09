@@ -238,7 +238,8 @@ function _convert(node, warnings) {
       console.log('here panel');
     case 'nestedExpand':
     case 'paragraph':
-      return node.content.map(node => _convert(node, warnings)).join('');
+      if (!node.content) console.log('Incorrect node:', node)
+      return node.content?.map(node => _convert(node, warnings)).join('') || '';
 
     case 'heading':
       return `${'#'.repeat(node.attrs.level)} ${node.content.map(node => _convert(node, warnings)).join('')}`;
@@ -349,7 +350,7 @@ function _convertMarks(node, warnings) {
       case 'underline':
         converted = `<u>${converted}</u>`;
         break;
-  
+
 
       case 'strong':
         converted = `**${converted}**`;
