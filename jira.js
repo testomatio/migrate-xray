@@ -238,9 +238,8 @@ function _convert(node, warnings) {
       console.log('here panel');
     case 'nestedExpand':
     case 'paragraph':
-      if (!node.content) console.log('Incorrect node:', node)
+      if (!node.content) return "\n";
       return node.content?.map(node => _convert(node, warnings)).join('') || '';
-
     case 'heading':
       return `${'#'.repeat(node.attrs.level)} ${node.content.map(node => _convert(node, warnings)).join('')}`;
 

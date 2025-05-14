@@ -1,6 +1,7 @@
 import debug from 'debug';
 import { fetchCustomFields, fetchTestCase } from './jira.js';
 import { fetchRepository, fetchTestsFromFolder, fetchSteps, fetchParams, fetchExamples, fetchPreconditions, downloadAttachment } from './xray.internal.js';
+
 import { getTestomatioEndpoints, loginToTestomatio, uploadFile, fetchFromTestomatio, postToTestomatio, putToTestomatio } from './testomatio.js';
 
 const logData = debug('testomatio:xray:migrate');
@@ -166,6 +167,8 @@ export default async function migrateTestCases() {
           const attachmentUrl = await uploadFile(testomatioTest?.id, filePath, {
             name: fileName,
           });
+
+          if (!description) continue;
 
           if (fileName.endsWith('.png') || fileName.endsWith('.jpg')) {
             description = description.replaceAll(`![](${fileName})`, `![](${attachmentUrl})`);
