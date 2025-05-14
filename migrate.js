@@ -179,15 +179,21 @@ export default async function migrateTestCases() {
           }
 
           // this is how we form test description
-          description = step.action;
-          title = description.split('\n')[0]?.trim()?.replace(/Scenario \d*/,'')
+          let lines = step.action?.split('\n') || [];
 
-          if (!title) {
+          if (!lines.length) {
             debug('Empty step/scenario')
             continue;
           }
 
-          if (step.data) description += "### Data\n```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\\{', '{') + "\n```";
+          // the first line of a step is a title:
+          // Scenario 1a: xasdsad lksajldjsald salkjsalkd
+          title = lines.shift().trim();
+
+          // we cut the first line, everything in action is a description
+          description = lines.join('\n');
+
+          if (step.data) description += "\n### Data\n" + step.data;
           if (step.result) description += "\n### Expected Result\n" + step.result;
 
           const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
