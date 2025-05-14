@@ -50,7 +50,7 @@ export default async function migrateTestCases() {
 
     const suiteData = {
       title: folder.name,
-      'file-type': isFolder ? 'folder' : 'file',
+      'file-type': 'folder',
     }
 
     const testomatioSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
@@ -62,16 +62,6 @@ export default async function migrateTestCases() {
     }
 
     logData('Suite created:', testomatioSuite?.attributes?.title);
-
-    if (isFolder && folder.testsCount > 0) {
-      suiteData['file-type'] = 'file';
-      suiteData['parent-id'] = testomatioSuite?.id;
-      const testomatioFileSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
-      filesMap[folder.folderId] = testomatioFileSuite?.id;
-
-      logData('Suite (file) created:', testomatioSuite?.attributes?.title);
-    }
-
   }
 
   for (const folder of folders.filter(f => f.folderId !== '-1' && f.parentFolderId !== '-1')) {
@@ -124,84 +114,93 @@ export default async function migrateTestCases() {
           continue;
         }
 
-
-        let preconditions = [];
-        try {
-          const preconditionIds = await fetchPreconditions(testId);
-          for (const preconditionId of preconditionIds) {
-            const preconditionData = await fetchTestCase(preconditionId);
-            preconditions.push(preconditionData);
-          }
-          logData('Preconditions fetched:', preconditions.length);
-        } catch (_err) {
-        }
-
-        if (!suiteId && !rootSuiteId) {
-          const testomatioRootSuite = await postToTestomatio(postSuiteEndpoint, 'suites', {
-            title: 'Root',
-            'file-type': 'file',
-            position: 1,
-            emoji: '📂',
-          });
-
-          rootSuiteId = testomatioRootSuite?.id;
-        }
-
-        const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
+        // if there is no steps we create a new suite and then a single test in that suite
+        // if there are steps, we need to create a suite, and each step is created as a test
+        const suiteData = {
           title: test.summary,
-          'suite-id': suiteId || rootSuiteId,
-          description: test.description,
-          priority: convertPriority(test.priority),
-        });
+          'file-type': 'file',
+          'parent-id': suiteId || rootSuiteId,
+          description: steps.length ? test.description : '',
+        }
 
-        testsMap[testId] = testomatioTest?.id;
+        // create a suite instead of a test
+        const testomatioSuite = await postToTestomatio(postSuiteEndpoint, 'suites', suiteData);
 
-        testsCreated++;
+        testsMap[testId] = testomatioSuite?.id;
 
-        logData('Test created:', testomatioTest?.attributes?.title);
+        logData('Suite created:', testomatioSuite?.attributes?.title);
 
-        let description = test.description;
 
-        for (const fileName in test.attachments) {
-          const filePath = test.attachments[fileName];
-          const attachmentUrl = await uploadFile(testomatioTest?.id, filePath, {
-            name: fileName,
+        // if there is no steps ==> we create a test case
+        if (!steps.length) {
+          const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
+            title: test.summary,
+            'suite-id': testomatioSuite?.id,
+            description,
           });
 
-          if (!description) continue;
+          testsCreated++;
 
-          if (fileName.endsWith('.png') || fileName.endsWith('.jpg')) {
-            description = description.replaceAll(`![](${fileName})`, `![](${attachmentUrl})`);
-          } else {
-            description = description.replaceAll(`![](${fileName})`, `[Attachment](${attachmentUrl})`);
-          }
-        }
+          let description = test.description;
 
-        if (preconditions.length) {
-          let preconditionText = `## Preconditions\n\n`;
+          // update attachments
+          for (const fileName in test.attachments) {
+            const filePath = test.attachments[fileName];
+            const attachmentUrl = await uploadFile(testomatioTest?.id, filePath, {
+              name: fileName,
+            });
 
-          preconditionText += preconditions.map(p => `#### ${p.summary}\n\n${p.description}`).join('\n\n');
+            if (!description) continue;
 
-          description = preconditionText + description;
-        }
-
-        if (steps.length) {
-          description += '\n\n';
-          description += '## Steps\n\n';
-          description += steps.map((step, index) => {
-            if (!step.action && step.callTestIssueId) {
-              if (!testsMap[step.callTestIssueId]) return "* !!![steps from a missing XRay test]]]!!!"
-
-              return `* Steps from @T${testsMap[step.callTestIssueId]}`;
+            if (fileName.endsWith('.png') || fileName.endsWith('.jpg')) {
+              description = description.replaceAll(`![](${fileName})`, `![](${attachmentUrl})`);
+            } else {
+              description = description.replaceAll(`![](${fileName})`, `[Attachment](${attachmentUrl})`);
             }
-            const stepLines = [];
-            stepLines.push(`* ${step.action}`);
-            if (step.data) stepLines.push("```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\\{', '{') + "\n```");
-            if (step.result) stepLines.push("*Expected*: " + step.result);
-            return stepLines.join('\n');
-          }).join('\n\n');
+          }
 
-          const attachments = steps.map(step => step.attachments).flat();
+          testsMap[testId] = testomatioTest?.id;
+
+          if (test.description !== description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest?.id, {
+            // params,
+            description,
+          });
+
+          continue;
+        }
+
+        // if there are tests we create a new test for each step
+        for (const step of steps) {
+          let description = "";
+          let title;
+
+          if (!step.action && step.callTestIssueId) {
+            continue;
+          }
+
+          // this is how we form test description
+          description = step.action;
+          title = description.split('\n')[0]?.trim()?.replace(/Scenario \d*/,'')
+
+          if (!title) {
+            debug('Empty step/scenario')
+            continue;
+          }
+
+          if (step.data) description += "### Data\n```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\\{', '{') + "\n```";
+          if (step.result) description += "\n### Expected Result\n" + step.result;
+
+          const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
+            title,
+            'suite-id': testomatioSuite?.id,
+            description,
+          });
+
+          testsCreated++;
+
+          // we update attachments
+          const attachments = step.attachments;
+          let currentDescription = description;
 
           for (const attachment of attachments) {
             const filePath = await downloadAttachment(attachment);
@@ -216,28 +215,11 @@ export default async function migrateTestCases() {
               description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `[Attachment](${attachmentUrl})`);
             }
           }
-        }
 
-        let params;
-        // FETCH PARAMS IS NOT IMPLEMENTED DUE API LIMITATION
-        // params = await fetchParams(testId)
-
-        if (description !== test.description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest?.id, {
-          // params,
-          description,
-        });
-
-        if (params) {
-          // FETCH EXAMPLES IS NOT IMPLEMENTED DUE API LIMITATION
-          // const examples = await fetchExamples(testId);
-          // console.log('examples');
-
-          // postToTestomatio(postExampleEndpoint, 'example', {
-          //   test_id: testomatioTest.id,
-          //   data: {
-          //      ....
-          //   }
-          // })
+          if (currentDescription !== description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest?.id, {
+            // params,
+            description,
+          });
         }
       }
     }
