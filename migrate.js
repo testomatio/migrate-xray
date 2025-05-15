@@ -114,13 +114,14 @@ export default async function migrateTestCases() {
           continue;
         }
 
+        let description = steps.length ? test.description : '';
         // if there is no steps we create a new suite and then a single test in that suite
         // if there are steps, we need to create a suite, and each step is created as a test
         const suiteData = {
           title: test.summary,
           'file-type': 'file',
           'parent-id': suiteId || rootSuiteId,
-          description: steps.length ? test.description : '',
+          description,
         }
 
         // create a suite instead of a test
