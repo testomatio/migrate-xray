@@ -142,8 +142,6 @@ export default async function migrateTestCases() {
 
           testsCreated++;
 
-          let description = test.description;
-
           // update attachments
           for (const fileName in test.attachments) {
             const filePath = test.attachments[fileName];
@@ -172,7 +170,7 @@ export default async function migrateTestCases() {
 
         // if there are tests we create a new test for each step
         for (const step of steps) {
-          let description = "";
+          description = "";
           let title;
 
           if (!step.action && step.callTestIssueId) {
