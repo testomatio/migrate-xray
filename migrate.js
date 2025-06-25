@@ -190,7 +190,7 @@ export default async function migrateTestCases() {
           title = lines.shift().trim();
 
           // we cut the first line, everything in action is a description
-          description = lines.join('\n');
+          description = lines.join('\n').replace(/^#{1,6}\s+/gm, '* ');
 
           if (step.data) description += "\n### Data\n" + step.data;
           if (step.result) description += "\n### Expected Result\n" + step.result;
