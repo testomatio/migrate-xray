@@ -1,10 +1,77 @@
 import debug from 'debug';
 import { fetchCustomFields, fetchTestCase } from './jira.js';
-import { fetchRepository, fetchTestsFromFolder, fetchSteps, fetchParams, fetchExamples, fetchPreconditions, downloadAttachment } from './xray.internal.js';
+import { fetchRepository, fetchTestsFromFolder, fetchSteps, fetchParams, fetchExamples, fetchPreconditions, downloadAttachment, fetchTestDetails } from './xray.internal.js';
 
 import { getTestomatioEndpoints, loginToTestomatio, uploadFile, fetchFromTestomatio, postToTestomatio, putToTestomatio } from './testomatio.js';
 
 const logData = debug('testomatio:xray:migrate');
+
+function isExportableTestType(type) {
+  return ['test', 'xray test'].includes((type || '').toLowerCase());
+}
+
+function titleWithTags(title, labels) {
+  const tags = [...new Set(labels || [])]
+    .filter(Boolean)
+    .map(l => `@${String(l).trim().replaceAll(' ', '_').replace(/[^a-zA-Z0-9_-]/g, '_')}`)
+    .join(' ');
+
+  return tags ? `${title} ${tags}` : title;
+}
+
+async function findSuiteTitleForTest(testId) {
+  try {
+    const details = await fetchTestDetails(testId, process.env.XRAY_TEST_VERSION_ID || null);
+    const path = details?.testRepositoryPath || details?.testRepository?.path || details?.path;
+    const folderName = details?.testRepositoryFolder?.name || details?.folder?.name;
+
+    const raw = folderName || path;
+    if (raw) {
+      const parts = String(raw)
+        .replaceAll('\\', '/')
+        .split(/\s*\/\s*|\s*>\s*|\s*›\s*|\s*»\s*/g)
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      if (parts.length) return parts[parts.length - 1];
+    }
+  } catch (_err) {
+  }
+
+  if (process.env.XRAY_DISABLE_FOLDER_SCAN) return null;
+
+  let folders;
+  try {
+    const repository = await fetchRepository();
+    folders = repository?.folders || [];
+  } catch (_err) {
+    return null;
+  }
+
+  if (process.env.XRAY_FOLDER_ID) {
+    folders = findFolderById(folders, process.env.XRAY_FOLDER_ID) || [];
+  }
+
+  for (const folder of folders) {
+    if (folder.folderId === '-1') continue;
+
+    let folderData;
+    try {
+      folderData = await fetchTestsFromFolder(folder.folderId);
+    } catch (_err) {
+      continue;
+    }
+    if (!folderData?.foldersTests) continue;
+
+    for (const ft of folderData.foldersTests) {
+      if ((ft.tests || []).some(id => String(id) === String(testId))) {
+        return folder.name;
+      }
+    }
+  }
+
+  return null;
+}
 
 export default async function migrateTestCases() {
 
@@ -24,10 +91,128 @@ export default async function migrateTestCases() {
   // IF XRAY API IS NOT AVAILABLE WE CAN IMPORT TEST CASES ONLY
   // const testCases = await fetchTestCases();
 
+  await loginToTestomatio();
+
+  const singleTestInput = process.env.XRAY_TEST_ID || process.env.XRAY_TEST_KEY;
+  if (singleTestInput) {
+    console.log('Importing single test case', singleTestInput);
+
+    const test = await fetchTestCase(singleTestInput);
+    if (!test) throw new Error(`Test case ${singleTestInput} not found in Jira`);
+
+    if (!isExportableTestType(test.type)) {
+      console.log('Skipping', singleTestInput, `Test type '${test.type}' is not considered for exporting. Edit migrate.js file change that`);
+      return;
+    }
+
+    let steps;
+    try {
+      steps = await fetchSteps(test.id);
+      logData('Steps fetched:', steps.length);
+    } catch (_err) {
+      steps = [];
+    }
+
+    let preconditions = [];
+    try {
+      const preconditionIds = await fetchPreconditions(test.id);
+      for (const preconditionId of preconditionIds) {
+        const preconditionData = await fetchTestCase(preconditionId);
+        preconditions.push(preconditionData);
+      }
+      logData('Preconditions fetched:', preconditions.length);
+    } catch (_err) {
+    }
+
+    const suiteTitle = process.env.TESTOMATIO_SUITE_TITLE || await findSuiteTitleForTest(test.id) || 'Root';
+    const testomatioRootSuite = await postToTestomatio(postSuiteEndpoint, 'suites', {
+      title: suiteTitle,
+      'file-type': 'file',
+      position: 1,
+    });
+
+    const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
+      title: titleWithTags(test.summary, test.labels),
+      'suite-id': testomatioRootSuite?.id,
+      description: test.description,
+      priority: convertPriority(test.priority),
+    });
+
+    logData('Test created:', testomatioTest?.attributes?.title);
+
+    let description = test.description;
+
+    for (const fileName in test.attachments) {
+      const filePath = test.attachments[fileName];
+      const attachmentUrl = await uploadFile(testomatioTest?.id, filePath, {
+        name: fileName,
+      });
+
+      if (!description) continue;
+
+      if (fileName.endsWith('.png') || fileName.endsWith('.jpg')) {
+        description = description.replaceAll(`![](${fileName})`, `![](${attachmentUrl})`);
+      } else {
+        description = description.replaceAll(`![](${fileName})`, `[Attachment](${attachmentUrl})`);
+      }
+    }
+
+    if (preconditions.length) {
+      let preconditionText = `## Preconditions\n\n`;
+
+      preconditionText += preconditions.map(p => `#### ${p.summary}\n\n${p.description}`).join('\n\n');
+
+      description = preconditionText + description;
+    }
+
+    const testsMap = {
+      [test.id]: testomatioTest?.id,
+    };
+
+    if (steps.length) {
+      description += '\n\n';
+      description += '## Steps\n\n';
+      description += steps.map((step, index) => {
+        if (!step.action && step.callTestIssueId) {
+          if (!testsMap[step.callTestIssueId]) return "* !!![steps from a missing XRay test]]]!!!"
+
+          return `* Steps from @T${testsMap[step.callTestIssueId]}`;
+        }
+        const stepLines = [];
+        stepLines.push(`* ${step.action}`);
+        if (step.data) stepLines.push("```\n" + step.data.replaceAll('{noformat}', '').replaceAll('\\{', '{') + "\n```");
+        if (step.result) stepLines.push("*Expected*: " + step.result);
+        return stepLines.join('\n');
+      }).join('\n\n');
+
+      const attachments = steps.map(step => step.attachments).flat();
+
+      for (const attachment of attachments) {
+        const filePath = await downloadAttachment(attachment);
+
+        const attachmentUrl = await uploadFile(testomatioTest.id, filePath, {
+          name: attachment.filename,
+        });
+
+        if (attachment.filename.endsWith('.png') || attachment.filename.endsWith('.jpg')) {
+          description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `![](${attachmentUrl})`);
+        } else {
+          description = description.replaceAll(`!xray-attachment://${attachment.id}|`, `[Attachment](${attachmentUrl})`);
+        }
+      }
+    }
+
+    if (description !== test.description) await putToTestomatio(postTestEndpoint, 'tests', testomatioTest?.id, {
+      description,
+    });
+
+    console.log('Tests created', 1);
+    console.log('All preconditions were prepended to tests');
+    return;
+  }
+
   // const repositories = await fetchFromXRay(getXRayEndpoints().getTestRepositories);
   const repository = await fetchRepository();
-
-  await loginToTestomatio();
 
   let folders = repository.folders;
 
@@ -110,7 +295,7 @@ export default async function migrateTestCases() {
           continue;
         }
 
-        if (!['Test', 'XRay Test'].includes(test.type)) {
+        if (!isExportableTestType(test.type)) {
           console.log('Skipping', testId, `Test type '${test.type}' is not considered for exporting. Edit migrate.js file change that`);
           logData('Skipping test:', test.summary);
           continue;
@@ -148,7 +333,7 @@ export default async function migrateTestCases() {
         }
 
         const testomatioTest = await postToTestomatio(postTestEndpoint, 'tests', {
-          title: test.summary,
+          title: titleWithTags(test.summary, test.labels),
           'suite-id': suiteId || rootSuiteId,
           description: test.description,
           priority: convertPriority(test.priority),

@@ -174,6 +174,7 @@ export async function fetchTestCase(issueId) {
       summary: issue.fields.summary,
       type: issue.fields.issuetype?.name,
       priority: issue.fields.priority?.name,
+      labels: issue.fields.labels || [],
       description,
       attachments,
     };
@@ -197,6 +198,7 @@ export async function fetchTestCases() {
         key: issue.key,
         summary: issue.fields.summary,
         priority: issue.fields.priority?.name,
+        labels: issue.fields.labels || [],
         description,
         attachments,
       };

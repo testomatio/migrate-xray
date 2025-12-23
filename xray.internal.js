@@ -11,6 +11,17 @@ let xrayToken;
 let xrayEndpoint;
 let jiraProjctId;
 
+async function getProjectId() {
+  if (jiraProjctId) return jiraProjctId;
+
+  const jiraProjects = await fetchFromJira(getJiraEndpoints().getProjectEndpoint);
+  if (!jiraProjects || !jiraProjects.length) {
+    throw new Error('Failed to fetch Jira Project ID');
+  }
+  jiraProjctId = jiraProjects[0].id;
+  return jiraProjctId;
+}
+
 export function configureXRay(url, xAcptToken) {
   if (!url) {
     throw new Error('Missing XRay URL');
@@ -30,15 +41,11 @@ export function configureXRay(url, xAcptToken) {
 
 export async function fetchFromXRay(url, method = 'GET', body = {}) {
 
-  if (!jiraProjctId) {
-    const jiraProjects = await fetchFromJira(getJiraEndpoints().getProjectEndpoint);
-    if (!jiraProjects || !jiraProjects.length) {
-      throw new Error('Failed to fetch Jira Project ID');
-    }
-    jiraProjctId = jiraProjects[0].id;
-  }
+  await getProjectId();
 
-  body.projectId = jiraProjctId;
+  if (body && method !== 'GET') {
+    body.projectId = jiraProjctId;
+  }
 
   if (method === 'GET') body = null;
 
@@ -68,6 +75,13 @@ export async function fetchFromXRay(url, method = 'GET', body = {}) {
     console.error('Error fetching data:', error);
     throw error;
   }
+}
+
+export async function fetchTestDetails(testId, testVersionId = null) {
+  const projectId = await getProjectId();
+  const query = testVersionId ? `?testVersionId=${encodeURIComponent(testVersionId)}` : '';
+  const url = `/${projectId}/test/${testId}/details${query}`;
+  return fetchFromXRay(url, 'GET');
 }
 
 export async function fetchRepository() {
