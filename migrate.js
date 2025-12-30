@@ -101,12 +101,17 @@ export default async function migrateTestCases() {
 
     for (const ft of folderData.foldersTests) {
       for (const testId of ft.tests) {
-
-        const test = await fetchTestCase(testId);
+        let test = null;
+        try {
+          test = await fetchTestCase(testId);
+        } catch (_err) {
+          console.log('Skipping', testId, `Fetch error: '${_err.message}'`);
+          continue;
+        }
 
         // pre-conditions?
         if (!test) {
-          // WHY??
+          console.log('Skipping', testId, 'Test not found');
           continue;
         }
 
